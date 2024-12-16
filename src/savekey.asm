@@ -16,9 +16,10 @@
 	ORG	$40	;	$40-$FF
 ;################################################################
 PalOrNtsc			ds	1	;	$40
-SaveKeyScratch			ds	1	;	$41 ; SaveKey needs a 1-byte scratchpad
+PrevJoystickState		ds	1	;	$41
+SaveKeyScratch			ds	1	;	$42 ; SaveKey needs a 1-byte scratchpad
 ; Canary RAM address, courtesy of Atariage user RevEng
-Canary				ds	1	;	$42
+Canary				ds	1	;	$43
 
 ;################################################################
 ; CHMAP RAM
@@ -31,14 +32,14 @@ CHMAP_RAM_Start			ds	256	;	$1800-$18FF
 ; DL RAM
 	ORG	$1900
 ;################################################################
-
+t
 DL_RAM_Start			ds	256	;	$1900-$19FF
 
 ;################################################################
 ; Another RAM area (this is a good place for SaveKey info)
 	ORG	$1F00
 ;################################################################
-NVMLocation	ds	3
+Save_Info_RAM	ds	8
 
 
 ;################################################################
@@ -93,7 +94,6 @@ PALETTE6		equ	#%00000110
 PALETTE7		equ	#%00000111
 
 ; SaveKey equates
-skBuffer		equ	NVMLocation	; define the RAM address you want to store
 SK_BYTES		equ	3		; define how many bytes your want to store
 SAVEKEY_ADR		equ	$1E80		; ask Albert for a free slot!
 						; This lines up with: 1E80 - 1EBF
@@ -117,77 +117,87 @@ STR_LEN_{2} = . - .start
 	ORG	$4000
 ;################################################################
 
-	;===================
-	; SaveKey / AtariVox functions
-	;===================
-	i2c_subs	SaveKeyScratch	; this requires a "scratchpad" zero-page address as a parameter
-;-------------------------------------------------------------------------------
-WriteSaveKey SUBROUTINE			; total cycles = 1923 (for 3 bytes)
-;-------------------------------------------------------------------------------
-; setup SaveKey:
-	jsr	SetupSaveKey		; 6+927
-	bcc	.noSKfound		; 2/3
+;==========================================================
+; Calling this macro puts some routines from "i2c7800.inc"
+; into source code, plus defines ; SaveKeyScratch as the
+; "scratchpad" zero-page address parameter used for
+; temporary storage in SaveKey operations
+;==========================================================
+	i2c_subs	SaveKeyScratch  ; this requires a "scratchpad" zero-page address as a parameter
 
-; write high score:
-	ldx	#SK_BYTES-1		; 2 = 937
-.loopWriteSK
-	lda	skBuffer,x		; 4
-	jsr	i2c_txbyte		; 6+296		transmit to EEPROM
-	dex				; 2
-	bpl	.loopWriteSK		; 2/3=932
+;===========================================================
+; A model of this code can be found in the file:
+;  * AtariVoxDevelopment.pdf
+; that can be found as an attachment here:
+;  * https://forums.atariage.com/applications/core/interface/file/attachment.php?id=322257
+;===========================================================
 
-; stop write:
-	jsr	i2c_stopwrite		; 6+42=48	terminate write and commit to memory
-.noSKfound
-	rts				; 6
+;===============
+; Write SaveKey
+;===============
 
-;-------------------------------------------------------------------------------
-ReadSaveKey SUBROUTINE			; total cycles = 2440 (for 3 bytes)
-;-------------------------------------------------------------------------------
-; setup SaveKey:
-	jsr	SetupSaveKey		; 6+927
-	bcc	.noSKfound		; 2/3
+WriteSaveKey
+	JSR	i2c_startwrite ; Start signal and $a0 command byte
+	BCS	eeprom_error ; exit if command byte not acknowledged
+	LDA	#$30 ; upper byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	JSR	i2c_txbyte
+	LDA	#$00 ; lower byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	JSR	i2c_txbyte
+	LDX	#$00
+write_loop
+	LDA	Save_Info_RAM,x ; get byte from RAM
+	JSR	i2c_txbyte ; transmit to EEPROM
+	INX
+	CPX	#$08 ; 8 bytes sent?
+	BNE	write_loop
+	JSR	i2c_stopwrite ; terminate write and commit to memory
+	LDA	#0 ; Let's set the Accumulator to Zero as a "success" error code
+	RTS
 
-; start read:
-	jsr	i2c_stopwrite		; 6+42		end of "fake" write
-	jsr	i2c_startread		; 6+284		Start signal and $a1 command byte
+;===============
+; Read SaveKey
+;===============
 
-; read high score:
-	ldx	#SK_BYTES-1		; 2 = 1275
-.loopReadSK
-	jsr	i2c_rxbyte		; 6+333		read byte from EEPROM
-	cmp	#$ff			; 2		EEPROM slot empty? (we are assuming $ff for uninitialized space)
-	bne	.skipEmptySK		; 2/3		no, skip clear
-	lda	#0			; 2		clear EEPROM slot
-.skipEmptySK
-	sta	skBuffer,x		; 4
-	dex				; 2
-	bpl	.loopReadSK		; 2/3=1061
+ReadSaveKey
+	JSR	i2c_startwrite ; Start signal and $a0 command byte
+	BCS	eeprom_error ; exit if command byte not acknowledged
+	LDA	#$30 ; upper byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	JSR	i2c_txbyte
+	LDA	#$00 ; lower byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	JSR	i2c_txbyte
+	JSR	i2c_stopwrite ; end of “fake” write
+	JSR	i2c_startread ; Start signal and $a1 command byte
+	LDX	#$00
+read_loop
+	JSR	i2c_rxbyte ; read byte from EEPROM
+	STA	Save_Info_RAM,x ; store in buffer
+	INX
+	CPX	#$08 ; 8 bytes read?
+	BNE	read_loop
+	JSR	i2c_stopread ; terminate read
+	LDA	#0 ; Let's set the Accumulator to Zero as a "success" error code
+	RTS
 
-; stop read:
-	jsr	i2c_stopread		; 6+92=98	terminate read
-.noSKfound
-	rts				; 6
+;================
+; Detect SaveKey
+;================
+DetectSaveKey
+	JSR	i2c_startwrite ; Start signal and $a0 command byte
+	BCS	eeprom_error ; exit if command byte not acknowledged
+	LDA	#$30 ; upper byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	JSR	i2c_txbyte
+	LDA	#$00 ; lower byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	JSR	i2c_txbyte
+	JSR	i2c_stopwrite
+	LDA	#0 ; Let's set the Accumulator to Zero as a "success" error code
+	RTS
 
-;------------------------------------------------------------------------------
-SetupSaveKey SUBROUTINE			; = 927
-;------------------------------------------------------------------------------
-; detect SaveKey:
-	jsr	i2c_startwrite		; 6+312
-	bne	.exitSK			; 2/3
-
-; setup address:
-	clv				; 2
-	lda	#>SAVEKEY_ADR		; 2		upper byte of address
-	jsr	i2c_txbyte		; 6+296
-	lda	#<SAVEKEY_ADR		; 2		lower byte offset
-	jmp	i2c_txbyte		; 3+296		returns C==1
-
-.exitSK
-	clc
-	rts
-
-; 176 bytes in total (less if you inline the subroutines)
+;===========================
+; Handle any SaveKey Errors
+;===========================
+eeprom_error
+	LDA	#$ff ; Let's set the Accumulator to a non-zero value ($FF) as a "failure" error code
+	RTS
 
 ;################################################################
 ; Graphics data for 128 characters
@@ -486,9 +496,12 @@ RamCleanupLoop3
 	; SaveKey / AtariVox integration
 	;================================
 	; Detect if there's a SaveKey there
-	JSR	SetupSaveKey
-	BCC	NoSaveKeyInstalled
+	JSR	DetectSaveKey
+	; if the above subroutine passes, it returns $00, if it fails, it returns $FF
+	BNE	NoSaveKeyInstalled
 SaveKeyInstalled
+	LDA	#$0 ; Now that we're done with SaveKey functions for now, let's turn both Joystick ports back to INPUTS
+	STA	SWACNT
 	; If there's a savekey installed, delete the "not" DL
         LDA     $00
         STA     $1900+DL_Not-$E100
@@ -518,6 +531,10 @@ CanaryIsAlive
 	;===================================
 	; Handle all housekeeping functions
 	;===================================
+	;INC	IncreasingCounter
+	;JSR	CheckReset
+	;JSR	CheckSelect
+	;JSR	CheckJoystick
 	; Now, turn on the screen
 	LDA	#%01001011	; then enable normal color output,
 	STA	CTRL		; turn on DMA, set one byte wide
@@ -638,6 +655,96 @@ NoPalSetup:
 	RTS
 	;===================
 
+
+	;============================
+	; Function - Joystick checks
+	;============================
+;CheckJoystick
+;	LDA	SWCHA
+;	BMI	NotRt
+;	LDA	PrevJoystickState
+;	BPL	NotRt
+;	; right - increase high nibble of color
+;WrapDown
+;	CLC
+;	LDA	COLOR
+;	ADC	#$10
+;	STA	COLOR
+;	sta	BACKGRND
+;	JMP	NotUp
+;NotRt
+;	ROL
+;	BMI	NotLeft
+;	LDA	PrevJoystickState
+;	ROL
+;	BPL	NotLeft
+;	; left - decrease high nibble of color
+;WrapUp
+;	SEC
+;	LDA	COLOR
+;	SBC	#$10
+;	STA	COLOR
+;	STA	BACKGRND
+;	JMP	NotUp
+;NotLeft
+;	ROL
+;	BMI	NotDown
+;	LDA	PrevJoystickState
+;	ROL
+;	ROL
+;	BPL	NotDown
+;	; down - decrease low nibble of color
+;	DEC	COLOR
+;	LDA	COLOR
+;	STA	BACKGRND
+;	AND	#$0F
+;	CMP	#$0F
+;	BEQ	WrapDown
+;	JMP	NotUp
+;NotDown
+;	ROL
+;	BMI	NotUp
+;	LDA	PrevJoystickState
+;	ROL
+;	ROL
+;	ROL
+;	BPL	NotUp
+;	; up - increase low nibble of color
+;	INC	COLOR
+;	LDA	COLOR
+;	STA	BACKGRND
+;	AND	#$0F
+;	BEQ	WrapUp
+;NotUp
+;	LDA	SWCHA
+;	AND	#$F0
+;	STA	PrevJoystickState
+;	LDA	COLOR
+;	AND	#$0F
+;	CMP	#$0A
+;	BM	INotLetter1
+;	CLC
+;	ADC	#$07
+;NotLetter1
+;	ADC	#$30
+;	STA	RIGHTCOLOR
+;	LDA	COLOR
+;	CLC
+;	AND	#$F0
+;	ROR
+;	ROR
+;	ROR
+;	ROR
+;	CMP	#$0A
+;	BMI	NotLetter2
+;	CLC
+;	ADC	#$07
+;NotLetter2
+;	ADC	#$30
+;	STA	LEFTCOLOR
+;	RTS
+;============================
+
 ;############################################################
 ; CHMAP Pointers to the graphic data are here - $1800 in RAM
 	ORG	$E000
@@ -645,6 +752,8 @@ NoPalSetup:
 
 CHMAP_Space
    STR_LEN " ", CHMAP_Space
+
+;=================
 
 CHMAP_SaveKey
    STR_LEN "SaveKey", CHMAP_SaveKey
@@ -654,6 +763,16 @@ CHMAP_Not
 
 CHMAP_Detected
    STR_LEN "Detected!!", CHMAP_Detected
+
+;=================
+
+CHMAP_Test_Send_To_SaveKey
+   STR_LEN "Test_Send_To_SaveKey", CHMAP_Test_Send_To_SaveKey
+
+CHMAP_Test_Receive_From_SaveKey
+   STR_LEN "Test_Receive_From_SaveKey", CHMAP_Test_Receive_From_SaveKey
+
+;
 
 ;###################################
 ; The DL starts here - $1900 in RAM
