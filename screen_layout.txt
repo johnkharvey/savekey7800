@@ -1,0 +1,26 @@
+XX1234567890123456789012345678901234567890XX
+1 ======================================== 1
+2 Assembly SaveKey Tester - Version 1.0    2
+3 by John K. Harvey (Atari Age @Propane13) 3
+4                                          4
+5 Code: github.com/johnkharvey/savekey7800 5
+6 ======================================== 6
+7                                          7
+8 SaveKey detection: PASSED                8
+9                                          9
+0 Move the joystick to select an option    0
+1 and then press FIRE:                     1
+2                                          2
+3 ADDRESS:                                 3
+4  - $3040 <-> $3048                       4
+5                                          5
+6 SEND DATA:                               6
+7  - Chicken / Weasel / Stork / Pig / Ox   7
+8  - 0000000 / <blank> / Test / 333 / 22   8
+9                                          9
+0 ACTION:                                  0
+1  - Send Data                             1
+2  - Read 8 bytes                          2
+3                                          3
+4 BYTES READ: <TBD>                        4
+XX1234567890123456789012345678901234567890XX

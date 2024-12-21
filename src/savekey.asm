@@ -16,10 +16,11 @@
 	ORG	$40	;	$40-$FF
 ;################################################################
 PalOrNtsc			ds	1	;	$40
-PrevJoystickState		ds	1	;	$41
-SaveKeyScratch			ds	1	;	$42 ; SaveKey needs a 1-byte scratchpad
+SaveKeyScratch			ds	1	;	$41 ; SaveKey needs a 1-byte scratchpad
+PrevJoystickState		ds	1	;	$42
+SelectedCommandNumber		ds	1	;	$43
 ; Canary RAM address, courtesy of Atariage user RevEng
-Canary				ds	1	;	$43
+Canary				ds	1	;	$44
 
 ;################################################################
 ; CHMAP RAM
@@ -32,7 +33,6 @@ CHMAP_RAM_Start			ds	256	;	$1800-$18FF
 ; DL RAM
 	ORG	$1900
 ;################################################################
-t
 DL_RAM_Start			ds	256	;	$1900-$19FF
 
 ;################################################################
@@ -362,7 +362,7 @@ eeprom_error
 
 ;################################################################
 ; Main execution code goes here
-	ORG	$D000
+	ORG	$C000
 ;################################################################
 
 	;==============================================================
@@ -477,6 +477,7 @@ RamCleanupLoop3
 	STA	P0C3
 	LDA	#$00		; black background, for starters
 	STA	BACKGRND
+	STA	SelectedCommandNumber
 	LDA	#$80		; the font data is located at $8000
 	STA	CHBASE
 	;================================
@@ -506,14 +507,18 @@ SaveKeyInstalled
         LDA     $00
         STA     $1900+DL_Not-$E100
         STA     $1901+DL_Not-$E100
-	LDA	#$C3 ; green
-	STA	BACKGRND
+	;LDA	#$C3 ; green
+	;STA	BACKGRND
 	JMP	AfterSaveKeyRead
 NoSaveKeyInstalled
-	LDA	#$43 ; red
-	STA	BACKGRND
+	;LDA	#$43 ; red
+	;STA	BACKGRND
 AfterSaveKeyRead
 	JSR	WaitVBLANK
+
+	; Default background Color
+	LDA	#$0F
+	STA	BACKGRND
 
 	;=========================
 	; Fall into the Main Loop
@@ -532,9 +537,13 @@ CanaryIsAlive
 	; Handle all housekeeping functions
 	;===================================
 	;INC	IncreasingCounter
+
+	LDA	SelectedCommandNumber
+	STA	BACKGRND
+
 	;JSR	CheckReset
 	;JSR	CheckSelect
-	;JSR	CheckJoystick
+	JSR	CheckJoystick
 	; Now, turn on the screen
 	LDA	#%01001011	; then enable normal color output,
 	STA	CTRL		; turn on DMA, set one byte wide
@@ -550,7 +559,7 @@ CanaryIsAlive
 Copy_CHMAPs:
 	LDX	#$00
 Copy_CHMAPs_Loop:
-	LDA	$e000,X
+	LDA	$D000,X
 	STA	$1800,X
 	INX
 	BNE	Copy_CHMAPs_Loop
@@ -562,7 +571,7 @@ Copy_CHMAPs_Loop:
 Copy_DLs:
 	LDX	#$00
 Copy_DLs_Loop:
-	LDA	$e100,X
+	LDA	$E000,X
 	STA	$1900,X
 	INX
 	BNE	Copy_DLs_Loop
@@ -659,95 +668,46 @@ NoPalSetup:
 	;============================
 	; Function - Joystick checks
 	;============================
-;CheckJoystick
-;	LDA	SWCHA
-;	BMI	NotRt
-;	LDA	PrevJoystickState
-;	BPL	NotRt
-;	; right - increase high nibble of color
-;WrapDown
-;	CLC
-;	LDA	COLOR
-;	ADC	#$10
-;	STA	COLOR
-;	sta	BACKGRND
-;	JMP	NotUp
-;NotRt
-;	ROL
-;	BMI	NotLeft
-;	LDA	PrevJoystickState
-;	ROL
-;	BPL	NotLeft
-;	; left - decrease high nibble of color
-;WrapUp
-;	SEC
-;	LDA	COLOR
-;	SBC	#$10
-;	STA	COLOR
-;	STA	BACKGRND
-;	JMP	NotUp
-;NotLeft
-;	ROL
-;	BMI	NotDown
-;	LDA	PrevJoystickState
-;	ROL
-;	ROL
-;	BPL	NotDown
-;	; down - decrease low nibble of color
-;	DEC	COLOR
-;	LDA	COLOR
-;	STA	BACKGRND
-;	AND	#$0F
-;	CMP	#$0F
-;	BEQ	WrapDown
-;	JMP	NotUp
-;NotDown
-;	ROL
-;	BMI	NotUp
-;	LDA	PrevJoystickState
-;	ROL
-;	ROL
-;	ROL
-;	BPL	NotUp
-;	; up - increase low nibble of color
-;	INC	COLOR
-;	LDA	COLOR
-;	STA	BACKGRND
-;	AND	#$0F
-;	BEQ	WrapUp
-;NotUp
-;	LDA	SWCHA
-;	AND	#$F0
-;	STA	PrevJoystickState
-;	LDA	COLOR
-;	AND	#$0F
-;	CMP	#$0A
-;	BM	INotLetter1
-;	CLC
-;	ADC	#$07
-;NotLetter1
-;	ADC	#$30
-;	STA	RIGHTCOLOR
-;	LDA	COLOR
-;	CLC
-;	AND	#$F0
-;	ROR
-;	ROR
-;	ROR
-;	ROR
-;	CMP	#$0A
-;	BMI	NotLetter2
-;	CLC
-;	ADC	#$07
-;NotLetter2
-;	ADC	#$30
-;	STA	LEFTCOLOR
-;	RTS
+CheckJoystick
+	LDA	SWCHA
+	ROL
+	ROL
+	BMI	NotDown
+	LDA	PrevJoystickState
+	ROL
+	ROL
+	BPL	NotDown
+	; down - decrease low nibble of color
+	DEC	SelectedCommandNumber
+	LDA	SelectedCommandNumber
+	AND	#$0F
+	STA	BACKGRND
+NotDown
+	LDA	SWCHA
+	ROL
+	ROL
+	ROL
+	BMI	NotUp
+	LDA	PrevJoystickState
+	ROL
+	ROL
+	ROL
+	BPL	NotUp
+	; up - increase low nibble of color
+	INC	SelectedCommandNumber
+	LDA	SelectedCommandNumber
+	AND	#$0F
+	STA	BACKGRND
+NotUp
+	LDA	SWCHA
+	AND	#$F0
+	STA	PrevJoystickState
+	RTS
 ;============================
 
 ;############################################################
 ; CHMAP Pointers to the graphic data are here - $1800 in RAM
-	ORG	$E000
+	ORG	$D000
 ;############################################################
 
 CHMAP_Space
@@ -764,19 +724,92 @@ CHMAP_Not
 CHMAP_Detected
    STR_LEN "Detected!!", CHMAP_Detected
 
-;=================
+;============================
 
-CHMAP_Test_Send_To_SaveKey
-   STR_LEN "Test_Send_To_SaveKey", CHMAP_Test_Send_To_SaveKey
+CHMAP_Line1_and_6_Half
+   STR_LEN "====================", CHMAP_Line1_and_6_Half
 
-CHMAP_Test_Receive_From_SaveKey
-   STR_LEN "Test_Receive_From_SaveKey", CHMAP_Test_Receive_From_SaveKey
+CHMAP_Line2_Part1
+   STR_LEN "Assembly SaveKey Tester -", CHMAP_Line2_Part1
 
-;
+CHMAP_Line2_Part2
+   STR_LEN "Version 1.0", CHMAP_Line2_Part2
+
+CHMAP_Line3_Part1
+   STR_LEN "by John K. Harvey (Atari Age", CHMAP_Line3_Part1
+CHMAP_Line3_Part2
+   STR_LEN "@Propane13)", CHMAP_Line3_Part2
+
+; Skip line 4
+
+CHMAP_Line5_Part1
+   STR_LEN "Code: github.com/johnkharvey/", CHMAP_Line5_Part1
+CHMAP_Line5_Part2
+   STR_LEN "savekey7800", CHMAP_Line5_Part2
+
+; Line 6 uses CHMAP_Line1_and_6_Half
+
+; Skip Line 7
+
+CHMAP_Line8_Hardcode
+   STR_LEN "SaveKey detection:", CHMAP_Line8_Hardcode
+CHMAP_Line8_Dynamic_Passed
+   STR_LEN "PASSED", CHMAP_Line8_Dynamic_Passed
+CHMAP_Line8_Dynamic_Failed
+   STR_LEN "FAILED", CHMAP_Line8_Dynamic_Failed
+
+; Skip line 9
+
+CHMAP_Line10_Part1
+   STR_LEN "Move the joystick to select an", CHMAP_Line10_Part1
+CHMAP_Line10_Part2
+   STR_LEN "option", CHMAP_Line10_Part2
+
+CHMAP_Line11
+   STR_LEN "and then press FIRE:", CHMAP_Line11
+
+; Skip line 12
+
+CHMAP_Line13
+   STR_LEN "ADDRESS:", CHMAP_Line13
+
+CHMAP_Line14
+   STR_LEN "- $3040 <-> $3048", CHMAP_Line14
+
+; Skip line 15
+
+CHMAP_Line16
+   STR_LEN "SEND DATA:", CHMAP_Line16
+
+CHMAP_Line17_Part1
+   STR_LEN "- Chicken / Weasel / Stork /", CHMAP_Line17_Part1
+CHMAP_Line17_Part2
+   STR_LEN "Pig / Ox", CHMAP_Line17_Part2
+
+CHMAP_Line18_Part1
+   STR_LEN "- 0000000 / <blank> / Test /", CHMAP_Line18_Part1
+CHMAP_Line18_Part2
+   STR_LEN "333 / 22", CHMAP_Line18_Part2
+
+; Skip line 19
+
+CHMAP_Line20
+   STR_LEN "ACTION:", CHMAP_Line20
+
+CHMAP_Line21
+   STR_LEN "- Send Data", CHMAP_Line21
+
+CHMAP_Line22
+   STR_LEN "- Read 8 bytes", CHMAP_Line22
+
+; Skip line 23
+
+CHMAP_Line23
+   STR_LEN "BYTES READ: <TBD>", CHMAP_Line23
 
 ;###################################
 ; The DL starts here - $1900 in RAM
-	ORG	$E100
+	ORG	$E000
 ;###################################
 
 DL_Empty
@@ -814,9 +847,106 @@ DL_Detected
 	dc.b	60 ; HPos (0-159)
 	dc.b	$00,$00
 
+;================
+
+DL_Line1_and_6
+	dc.b	<CHMAP_Line1_and_6_Half
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_RAM_Start
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line1_and_6_Half
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line1_and_6_Half
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_RAM_Start
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line1_and_6_Half
+	dc.b	80 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line2
+	dc.b	<CHMAP_Line2_Part1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_RAM_Start
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line2_Part1
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line2_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_RAM_Start
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line2_Part2
+	dc.b	104 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line3
+	dc.b	<CHMAP_Line3_Part1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_RAM_Start
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line3_Part1
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line3_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_RAM_Start
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line3_Part2
+	dc.b	116 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line5
+	dc.b	<CHMAP_Line5_Part1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_RAM_Start
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line5_Part1
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line5_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_RAM_Start
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line5_Part2
+	dc.b	116 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+/*
+
+CHMAP_Source1
+CHMAP_Source2
+
+CHMAP_Detection_Check
+
+;CHMAP_Instructions
+
+CHMAP_Command1
+CHMAP_Command2
+CHMAP_Command3
+CHMAP_Command4
+CHMAP_Command5
+CHMAP_Command6
+CHMAP_Command7
+CHMAP_Command8
+
+CHMAP_Command9
+CHMAP_Command10
+CHMAP_Command11
+CHMAP_Command12
+CHMAP_Command13
+CHMAP_Command14
+CHMAP_Command15
+CHMAP_Command16
+
+CHMAP_Bytes_Read
+
+;CHMAP_Reference1
+;CHMAP_Reference2
+;CHMAP_Reference3
+
+*/
+
 ;#####################################
-; The DLL starts here - $1A00 in RAM
-	ORG	$E200
+; The DLL starts here - $2400 in RAM
+	ORG	$F000
 ;#####################################
 
 DLL_PAL:
@@ -839,30 +969,30 @@ DLL_NTSC:
 Code_DLL_On_Screen:
 DLL_On_Screen	EQU	Code_DLL_On_Screen - DLL_PAL + DLLRam
 
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [8] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [16] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [24] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [32] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [40] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [48] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line1_and_6 ; [8] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line2 ; [16] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line3   ; [24] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Space   ; [32] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line5	; [40] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line1_and_6 ; [48] blank
 	dc.b	$07, >DL_RAM_Start, <DL_SaveKey	; [56] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [64] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Not	; [72] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [80] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Detected	; [88] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [96] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line1_and_6 ; [96] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [104] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [112] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [120] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [128] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [136] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [144] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line1_and_6 ; [144] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [152] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [160] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [168] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [176] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [184] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [192] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line1_and_6 ; [192] blank
 
 	dc.b	$07, >DL_Empty, <DL_Empty	; The DMA keeps doing another 26 lines
 	dc.b	$07, >DL_Empty, <DL_Empty	; which can't be seen on most NTSC
@@ -887,6 +1017,7 @@ DLL_On_Screen	EQU	Code_DLL_On_Screen - DLL_PAL + DLLRam
 ; displaying in every frame.
 INTERRUPT:
 
+	RTI
 	; Canary code, courtesy of Atariage user RevEng
 	LDA	#$1A ; YELLOW
 	STA	BACKGRND
