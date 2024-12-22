@@ -505,8 +505,8 @@ SaveKeyInstalled
 	STA	SWACNT
 	; If there's a savekey installed, delete the "not" DL
         LDA     $00
-        STA     $1900+DL_Not-$E100
-        STA     $1901+DL_Not-$E100
+        ;STA     $1900+DL_Not-$E100
+        ;STA     $1901+DL_Not-$E100
 	;LDA	#$C3 ; green
 	;STA	BACKGRND
 	JMP	AfterSaveKeyRead
@@ -713,16 +713,18 @@ NotUp
 CHMAP_Space
    STR_LEN " ", CHMAP_Space
 
-;=================
+;===============================================================================
+; Any "dynaimc" CHMAP goes at the top of the list, so they can be copied to RAM
+;===============================================================================
 
-CHMAP_SaveKey
-   STR_LEN "SaveKey", CHMAP_SaveKey
+;CHMAP_SaveKey
+;   STR_LEN "SaveKey", CHMAP_SaveKey
 
-CHMAP_Not
-   STR_LEN "Not", CHMAP_Not
+;CHMAP_Not
+;   STR_LEN "Not", CHMAP_Not
 
-CHMAP_Detected
-   STR_LEN "Detected!!", CHMAP_Detected
+;CHMAP_Detected
+;   STR_LEN "Detected!!", CHMAP_Detected
 
 ;============================
 
@@ -804,8 +806,8 @@ CHMAP_Line22
 
 ; Skip line 23
 
-CHMAP_Line23
-   STR_LEN "BYTES READ: <TBD>", CHMAP_Line23
+CHMAP_Line24
+   STR_LEN "BYTES READ: <TBD>", CHMAP_Line24
 
 ;###################################
 ; The DL starts here - $1900 in RAM
@@ -823,42 +825,18 @@ DL_Space
 	dc.b	0 ; HPos (0-159)
 	dc.b	$00,$00
 
-DL_SaveKey
-	dc.b	<CHMAP_SaveKey
-	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
-	dc.b	PALETTE0+$20-STR_LEN_CHMAP_SaveKey
-	dc.b	66 ; HPos (0-159)
-	dc.b	$00,$00
-
-DL_Not
-	dc.b	<CHMAP_Not
-	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
-	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Not
-	dc.b	74 ; HPos (0-159)
-	dc.b	$00,$00
-
-DL_Detected
-	dc.b	<CHMAP_Detected
-	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
-	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Detected
-	dc.b	60 ; HPos (0-159)
-	dc.b	$00,$00
-
 ;================
 
 DL_Line1_and_6
 	dc.b	<CHMAP_Line1_and_6_Half
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
+	dc.b	>CHMAP_Line1_and_6_Half
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line1_and_6_Half
 	dc.b	0 ; HPos (0-159)
 
 	dc.b	<CHMAP_Line1_and_6_Half
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
+	dc.b	>CHMAP_Line1_and_6_Half
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line1_and_6_Half
 	dc.b	80 ; HPos (0-159)
 
@@ -867,13 +845,13 @@ DL_Line1_and_6
 DL_Line2
 	dc.b	<CHMAP_Line2_Part1
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
+	dc.b	>CHMAP_Line2_Part1
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line2_Part1
 	dc.b	0 ; HPos (0-159)
 
 	dc.b	<CHMAP_Line2_Part2
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
+	dc.b	>CHMAP_Line2_Part2
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line2_Part2
 	dc.b	104 ; HPos (0-159)
 
@@ -882,13 +860,13 @@ DL_Line2
 DL_Line3
 	dc.b	<CHMAP_Line3_Part1
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
+	dc.b	>CHMAP_Line3_Part1
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line3_Part1
 	dc.b	0 ; HPos (0-159)
 
 	dc.b	<CHMAP_Line3_Part2
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
+	dc.b	>CHMAP_Line3_Part2
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line3_Part2
 	dc.b	116 ; HPos (0-159)
 
@@ -897,52 +875,149 @@ DL_Line3
 DL_Line5
 	dc.b	<CHMAP_Line5_Part1
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
+	dc.b	>CHMAP_Line5_Part1
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line5_Part1
 	dc.b	0 ; HPos (0-159)
 
 	dc.b	<CHMAP_Line5_Part2
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
+	dc.b	>CHMAP_Line5_Part2
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line5_Part2
 	dc.b	116 ; HPos (0-159)
 
 	dc.b	$00,$00
 
-/*
+DL_Line8
+	dc.b	<CHMAP_Line8_Hardcode
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line8_Hardcode
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line8_Hardcode
+	dc.b	0 ; HPos (0-159)
 
-CHMAP_Source1
-CHMAP_Source2
+	dc.b	<CHMAP_Line8_Dynamic_Passed
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line8_Dynamic_Passed
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line8_Dynamic_Passed
+	dc.b	76 ; HPos (0-159)
 
-CHMAP_Detection_Check
+	dc.b	$00,$00
 
-;CHMAP_Instructions
+DL_Line10
+	dc.b	<CHMAP_Line10_Part1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line10_Part1
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line10_Part1
+	dc.b	0 ; HPos (0-159)
 
-CHMAP_Command1
-CHMAP_Command2
-CHMAP_Command3
-CHMAP_Command4
-CHMAP_Command5
-CHMAP_Command6
-CHMAP_Command7
-CHMAP_Command8
+	dc.b	<CHMAP_Line10_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line10_Part2
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line10_Part2
+	dc.b	124 ; HPos (0-159)
 
-CHMAP_Command9
-CHMAP_Command10
-CHMAP_Command11
-CHMAP_Command12
-CHMAP_Command13
-CHMAP_Command14
-CHMAP_Command15
-CHMAP_Command16
+	dc.b	$00,$00
 
-CHMAP_Bytes_Read
+DL_Line11
+	dc.b	<CHMAP_Line11
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line11
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line11
+	dc.b	0 ; HPos (0-159)
 
-;CHMAP_Reference1
-;CHMAP_Reference2
-;CHMAP_Reference3
+	dc.b	$00,$00
 
-*/
+DL_Line13
+	dc.b	<CHMAP_Line13
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line13
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line13
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line14
+	dc.b	<CHMAP_Line14
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line14
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line14
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line16
+	dc.b	<CHMAP_Line16
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line16
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line16
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line17
+	dc.b	<CHMAP_Line17_Part1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line17_Part1
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line17_Part1
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line17_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line17_Part2
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line17_Part2
+	dc.b	120 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line18
+	dc.b	<CHMAP_Line18_Part1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line18_Part1
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line18_Part1
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line18_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line18_Part2
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line18_Part2
+	dc.b	120 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line20
+	dc.b	<CHMAP_Line20
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line20
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line20
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line21
+	dc.b	<CHMAP_Line21
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line21
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line21
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line22
+	dc.b	<CHMAP_Line22
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line22
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line22
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line24
+	dc.b	<CHMAP_Line24
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line24
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line24
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	$00,$00
 
 ;#####################################
 ; The DLL starts here - $2400 in RAM
@@ -955,7 +1030,7 @@ DLL_PAL:
 	dc.b	$07, >DL_Empty, <DL_Empty
 	dc.b	$07, >DL_Empty, <DL_Empty
 
-	; $E20C
+	; $F20C
 DLL_NTSC:
 	dc.b	$00, >DL_Empty, <DL_Empty	; 25 blank lines that can't be seen
 	dc.b	$07, >DL_Empty, <DL_Empty	; on most NTSC TVs anyway
@@ -975,24 +1050,24 @@ DLL_On_Screen	EQU	Code_DLL_On_Screen - DLL_PAL + DLLRam
 	dc.b	$07, >DL_RAM_Start, <DL_Space   ; [32] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Line5	; [40] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Line1_and_6 ; [48] blank
-	dc.b	$07, >DL_RAM_Start, <DL_SaveKey	; [56] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [64] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Not	; [72] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [80] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Detected	; [88] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Line1_and_6 ; [96] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [104] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [112] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Space   ; [56] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line8   ; [64] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Space   ; [72] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line10  ; [80] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line11  ; [88] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Space   ; [96] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line13  ; [104] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line14  ; [112] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [120] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [128] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [136] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Line1_and_6 ; [144] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line16  ; [128] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line17  ; [136] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line18  ; [144] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [152] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [160] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [168] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [176] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line20  ; [160] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line21  ; [168] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line22  ; [176] blank
 	dc.b	$07, >DL_RAM_Start, <DL_Space	; [184] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Line1_and_6 ; [192] blank
+	dc.b	$07, >DL_RAM_Start, <DL_Line24  ; [192] blank
 
 	dc.b	$07, >DL_Empty, <DL_Empty	; The DMA keeps doing another 26 lines
 	dc.b	$07, >DL_Empty, <DL_Empty	; which can't be seen on most NTSC
