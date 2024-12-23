@@ -626,6 +626,9 @@ SetupPALorNTSCPalettes
 	; To make a NTSC game run on a PAL console, put 25 blank lines before & after NTSC display.
 	;===================
 	JSR	WaitVBLANK
+WaitVBoverForPALNTSC:
+	BIT	MSTAT
+	BMI	WaitVBoverForPALNTSC	; wait for the VBLANK to end
 	;===================
 
 	;===================
