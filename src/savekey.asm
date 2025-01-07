@@ -20,8 +20,10 @@ SaveKeyScratch			ds	1	;	$41 ; SaveKey needs a 1-byte scratchpad
 PrevJoystickState		ds	1	;	$42
 HighlightIndex			ds	1	;	$43
 IndirPtr			ds	2	;	$44-$45
+LocationIndex			ds	1	;	$46
+SendBlockIndex			ds	1	;	$47
 ; Canary RAM address, courtesy of Atariage user RevEng
-Canary				ds	1	;	$46
+Canary				ds	1	;	$48
 
 ;################################################################
 ; CHMAP RAM
@@ -234,7 +236,6 @@ eeprom_error
 	dc.b	$00,$00,$78,$00,$00,$00,$00,$00
 	dc.b	$F0,$1E,$00,$00,$00,$00,$00,$00
 	dc.b	$00,$F8,$00,$00,$00,$00,$00,$00
-	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
  
 	ALIGN	256
 ; graphics data for 128 characters - line 7
@@ -254,7 +255,6 @@ eeprom_error
 	dc.b	$E6,$78,$CC,$E6,$78,$C6,$CC,$78
 	dc.b	$60,$0C,$F0,$F8,$18,$76,$30,$6C
 	dc.b	$C6,$0C,$FC,$1C,$18,$E0,$00,$FE
-	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 	ALIGN	256
 ; graphics data for 128 characters - line 6
@@ -274,7 +274,6 @@ eeprom_error
 	dc.b	$66,$30,$CC,$6C,$30,$D6,$CC,$CC
 	dc.b	$7C,$7C,$60,$0C,$34,$CC,$78,$FE
 	dc.b	$6C,$7C,$64,$30,$18,$30,$00,$C6
-	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 	ALIGN	256
 ; graphics data for 128 characters - line 5
@@ -294,7 +293,6 @@ eeprom_error
 	dc.b	$66,$30,$0C,$78,$30,$FE,$CC,$CC
 	dc.b	$66,$CC,$66,$78,$30,$CC,$CC,$FE
 	dc.b	$38,$CC,$30,$30,$18,$30,$00,$C6
-	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
  
 	ALIGN	256
 ; graphics data for 128 characters - line 4
@@ -314,7 +312,6 @@ eeprom_error
 	dc.b	$76,$30,$0C,$6C,$30,$FE,$CC,$CC
 	dc.b	$66,$CC,$76,$C0,$30,$CC,$CC,$D6
 	dc.b	$5C,$CC,$98,$E0,$00,$1C,$00,$6C
-	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
  
 	ALIGN	256
 ; graphics data for 128 characters - line 3
@@ -334,7 +331,6 @@ eeprom_error
 	dc.b	$6C,$70,$0C,$66,$30,$CC,$F8,$78
 	dc.b	$DC,$76,$DC,$7C,$7C,$CC,$CC,$C6
 	dc.b	$C6,$CC,$FC,$30,$18,$30,$00,$38
-	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 	ALIGN	256
 ; graphics data for 128 characters - line 2
@@ -354,7 +350,6 @@ eeprom_error
 	dc.b	$60,$00,$00,$60,$30,$00,$00,$00
 	dc.b	$00,$00,$00,$00,$30,$00,$00,$00
 	dc.b	$00,$00,$00,$30,$18,$30,$DC,$10
-	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 	ALIGN	256
 ; graphics data for 128 characters - line 1
@@ -374,11 +369,10 @@ eeprom_error
 	dc.b	$E0,$30,$0C,$E0,$70,$00,$00,$00
 	dc.b	$00,$00,$00,$00,$10,$00,$00,$00
 	dc.b	$00,$00,$00,$1C,$18,$E0,$76,$00
-	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 ;################################################################
 ; Other data
-	ORG	$8781
+	ORG	$8780
 ;################################################################
 
 	dc.b	$FF ; safety in case we have too many bytes in the section above
@@ -550,23 +544,26 @@ RamCleanupLoop3
 SaveKeyInstalled
 	LDA	#$0 ; Now that we're done with SaveKey functions for now, let's turn both Joystick ports back to INPUTS
 	STA	SWACNT
-	; If there's a savekey installed, delete the "not" DL
-	LDA	$00
-	;STA	$1900+DL_Not-$E100
-	;STA	$1901+DL_Not-$E100
-	;LDA	#$C3 ; green
+	;LDA	$C3 ; green
 	;STA	BACKGRND
 	JMP	AfterSaveKeyRead
 NoSaveKeyInstalled
-	;LDA	#$43 ; red
+	;LDA	#$33 ; red
 	;STA	BACKGRND
 AfterSaveKeyRead
 	JSR	WaitVBLANK
 
 	; Default background Color
-	;LDA	#$0F
 	LDA	#$00
 	STA	BACKGRND
+
+	;======================================
+	; Set up default highlighting pointers
+	;======================================
+	LDA	#0
+	STA	LocationIndex 
+	LDA	#2
+	STA	SendBlockIndex
 
 	;=========================
 	; Fall into the Main Loop
@@ -587,6 +584,7 @@ CanaryIsAlive
 	;JSR	CheckReset
 	;JSR	CheckSelect
 	JSR	CheckJoystick
+	JSR	CheckButton
 	JSR	AfterJoystickProcessHighlighting
 	; Now, turn on the screen
 	LDA	#%01001011	; then enable normal color output,
@@ -829,6 +827,30 @@ AfterUp
 	STA	PrevJoystickState
 	RTS
 
+CheckButton
+	LDA	INPT1
+	AND	#%10000000
+	BEQ	ButtonNotPressed
+
+	; BUTTON PRESSED
+	LDA	HighlightIndex
+	; Locations 0-1 are the send byte.  If button pressed, we save the current location
+	BEQ	SaveLocationIndex
+	CMP	#1
+	BNE	PastSaveLocationIndex
+SaveLocationIndex
+	; we were a 0 or 1, we fall here.  Save the new index
+	STA	LocationIndex
+	JMP	PastSaveSendBlockIndex
+PastSaveLocationIndex
+	CMP	#12
+	BPL	PastSaveSendBlockIndex
+	; we were between 2 and 11.  Save
+	STA	SendBlockIndex
+PastSaveSendBlockIndex
+ButtonNotPressed
+	RTS
+
 AfterJoystickProcessHighlighting
 	;=======================
 	; 1 - savekey detection
@@ -860,7 +882,30 @@ LoopToCleanAllText
 	ORA	#GREEN
 	STA	Color7
 
-	; Next, let's highlight the currently selected word
+	; Next, let's highlight the previous words selected in certain rows (defaults to first column)
+	LDX	LocationIndex
+	LDA	ColorPtrTableLSB,X
+	STA	IndirPtr
+	LDA	ColorPtrTableMSB,X
+	STA	IndirPtr+1
+	LDY	#0
+	LDA	(IndirPtr),Y ; load the current color
+	AND	#%00011111
+	ORA	#YELLOW
+	STA	(IndirPtr),Y
+
+	LDX	SendBlockIndex
+	LDA	ColorPtrTableLSB,X
+	STA	IndirPtr
+	LDA	ColorPtrTableMSB,X
+	STA	IndirPtr+1
+	LDY	#0
+	LDA	(IndirPtr),Y ; load the current color
+	AND	#%00011111
+	ORA	#YELLOW
+	STA	(IndirPtr),Y
+
+	; Finally, let's highlight the currently selected word
 	LDX	HighlightIndex
 	LDA	ColorPtrTableLSB,X
 	STA	IndirPtr
