@@ -18,9 +18,10 @@
 PalOrNtsc			ds	1	;	$40
 SaveKeyScratch			ds	1	;	$41 ; SaveKey needs a 1-byte scratchpad
 PrevJoystickState		ds	1	;	$42
-SelectedCommandNumber		ds	1	;	$43
+HighlightIndex			ds	1	;	$43
+IndirPtr			ds	2	;	$44-$45
 ; Canary RAM address, courtesy of Atariage user RevEng
-Canary				ds	1	;	$44
+Canary				ds	1	;	$46
 
 ;################################################################
 ; CHMAP RAM
@@ -85,11 +86,23 @@ DLLRam:
 GRAPHICS_SPACE		equ	$00	; a null character graphic pointer
 
 PALETTE0		equ	#%00000000
+BLUE			equ	PALETTE0
+
 PALETTE1		equ	#%00100000
+GREEN			equ	PALETTE1
+
 PALETTE2		equ	#%01000000
+RED			equ	PALETTE2
+
 PALETTE3		equ	#%01100000
+YELLOW			equ	PALETTE3
+
 PALETTE4		equ	#%10000000
+GREY			equ	PALETTE4
+
 PALETTE5		equ	#%10100000
+WHITE			equ	PALETTE5
+
 PALETTE6		equ	#%11000000
 PALETTE7		equ	#%11100000
 
@@ -221,6 +234,7 @@ eeprom_error
 	dc.b	$00,$00,$78,$00,$00,$00,$00,$00
 	dc.b	$F0,$1E,$00,$00,$00,$00,$00,$00
 	dc.b	$00,$F8,$00,$00,$00,$00,$00,$00
+	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
  
 	ALIGN	256
 ; graphics data for 128 characters - line 7
@@ -240,6 +254,7 @@ eeprom_error
 	dc.b	$E6,$78,$CC,$E6,$78,$C6,$CC,$78
 	dc.b	$60,$0C,$F0,$F8,$18,$76,$30,$6C
 	dc.b	$C6,$0C,$FC,$1C,$18,$E0,$00,$FE
+	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 	ALIGN	256
 ; graphics data for 128 characters - line 6
@@ -259,6 +274,7 @@ eeprom_error
 	dc.b	$66,$30,$CC,$6C,$30,$D6,$CC,$CC
 	dc.b	$7C,$7C,$60,$0C,$34,$CC,$78,$FE
 	dc.b	$6C,$7C,$64,$30,$18,$30,$00,$C6
+	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 	ALIGN	256
 ; graphics data for 128 characters - line 5
@@ -278,6 +294,7 @@ eeprom_error
 	dc.b	$66,$30,$0C,$78,$30,$FE,$CC,$CC
 	dc.b	$66,$CC,$66,$78,$30,$CC,$CC,$FE
 	dc.b	$38,$CC,$30,$30,$18,$30,$00,$C6
+	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
  
 	ALIGN	256
 ; graphics data for 128 characters - line 4
@@ -297,6 +314,7 @@ eeprom_error
 	dc.b	$76,$30,$0C,$6C,$30,$FE,$CC,$CC
 	dc.b	$66,$CC,$76,$C0,$30,$CC,$CC,$D6
 	dc.b	$5C,$CC,$98,$E0,$00,$1C,$00,$6C
+	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
  
 	ALIGN	256
 ; graphics data for 128 characters - line 3
@@ -316,6 +334,7 @@ eeprom_error
 	dc.b	$6C,$70,$0C,$66,$30,$CC,$F8,$78
 	dc.b	$DC,$76,$DC,$7C,$7C,$CC,$CC,$C6
 	dc.b	$C6,$CC,$FC,$30,$18,$30,$00,$38
+	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 	ALIGN	256
 ; graphics data for 128 characters - line 2
@@ -335,6 +354,7 @@ eeprom_error
 	dc.b	$60,$00,$00,$60,$30,$00,$00,$00
 	dc.b	$00,$00,$00,$00,$30,$00,$00,$00
 	dc.b	$00,$00,$00,$30,$18,$30,$DC,$10
+	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 	ALIGN	256
 ; graphics data for 128 characters - line 1
@@ -354,11 +374,14 @@ eeprom_error
 	dc.b	$E0,$30,$0C,$E0,$70,$00,$00,$00
 	dc.b	$00,$00,$00,$00,$10,$00,$00,$00
 	dc.b	$00,$00,$00,$1C,$18,$E0,$76,$00
+	dc.b	$FF ; let's have byte $80 be equivalent to ASCII 219, "full block"
 
 ;################################################################
 ; Other data
-	ORG	$8780
+	ORG	$8781
 ;################################################################
+
+	dc.b	$FF ; safety in case we have too many bytes in the section above
 
 ;################################################################
 ; Main execution code goes here
@@ -471,7 +494,7 @@ RamCleanupLoop3
 	;================================
 	LDA	#$00		; black background, for starters
 	STA	BACKGRND
-	STA	SelectedCommandNumber
+	STA	HighlightIndex
 	LDA	#$80		; the font data is located at $8000
 	STA	CHBASE
 	;================================
@@ -528,9 +551,9 @@ SaveKeyInstalled
 	LDA	#$0 ; Now that we're done with SaveKey functions for now, let's turn both Joystick ports back to INPUTS
 	STA	SWACNT
 	; If there's a savekey installed, delete the "not" DL
-        LDA     $00
-        ;STA     $1900+DL_Not-$E100
-        ;STA     $1901+DL_Not-$E100
+	LDA	$00
+	;STA	$1900+DL_Not-$E100
+	;STA	$1901+DL_Not-$E100
 	;LDA	#$C3 ; green
 	;STA	BACKGRND
 	JMP	AfterSaveKeyRead
@@ -541,7 +564,8 @@ AfterSaveKeyRead
 	JSR	WaitVBLANK
 
 	; Default background Color
-	LDA	#$0F
+	;LDA	#$0F
+	LDA	#$00
 	STA	BACKGRND
 
 	;=========================
@@ -560,20 +584,18 @@ CanaryIsAlive
 	;===================================
 	; Handle all housekeeping functions
 	;===================================
-	;INC	IncreasingCounter
-
-	LDA	SelectedCommandNumber
-	STA	BACKGRND
-
 	;JSR	CheckReset
 	;JSR	CheckSelect
 	JSR	CheckJoystick
+	JSR	AfterJoystickProcessHighlighting
 	; Now, turn on the screen
 	LDA	#%01001011	; then enable normal color output,
 	STA	CTRL		; turn on DMA, set one byte wide
 				; characters, make the border black
 				; enable transparent output, set screen
 				; mode to 320A or 320C
+				; (D1 and D0 = %11, so 320A or 320C)
+				; (DL mode byte D7 = 0, so 320A)
 	JMP	MainLoop
 	;===================
 
@@ -717,6 +739,8 @@ NoPalSetup:
 	STA	P2C2
 	LDA	#$1A ; yellow text
 	STA	P3C2
+	LDA	#$03
+	STA	P4C2
 	RTS
 	;===================
 
@@ -725,40 +749,161 @@ NoPalSetup:
 	;============================
 CheckJoystick
 	LDA	SWCHA
+	BMI	AfterRight
+	LDA	PrevJoystickState
+	BPL	AfterRight
+
+	;===================
+	; Handle RIGHT here
+	;===================
+	INC	HighlightIndex
+	LDA	HighlightIndex
+	CMP	#14
+	BNE	AfterRight
+	LDA	#0
+	STA	HighlightIndex
+
+AfterRight
+	LDA	SWCHA
+	ROL
+	BMI	AfterLeft
+	LDA	PrevJoystickState
+	ROL
+	BPL	AfterLeft
+
+	;==================
+	; Handle LEFT here
+	;==================
+	DEC	HighlightIndex
+	LDA	HighlightIndex
+	CMP	#$FF
+	BNE	AfterLeft
+	LDA	#13
+	STA	HighlightIndex
+
+AfterLeft
+	LDA	SWCHA
 	ROL
 	ROL
-	BMI	NotDown
+	BMI	AfterDown
 	LDA	PrevJoystickState
 	ROL
 	ROL
-	BPL	NotDown
-	; down - decrease low nibble of color
-	DEC	SelectedCommandNumber
-	LDA	SelectedCommandNumber
-	AND	#$0F
-	STA	BACKGRND
-NotDown
+	BPL	AfterDown
+
+	;==================
+	; Handle DOWN here
+	;==================
+	INC	HighlightIndex
+	LDA	HighlightIndex
+	CMP	#14
+	BNE	AfterDown
+	LDA	#0
+	STA	HighlightIndex
+
+AfterDown
 	LDA	SWCHA
 	ROL
 	ROL
 	ROL
-	BMI	NotUp
+	BMI	AfterUp
 	LDA	PrevJoystickState
 	ROL
 	ROL
 	ROL
-	BPL	NotUp
-	; up - increase low nibble of color
-	INC	SelectedCommandNumber
-	LDA	SelectedCommandNumber
-	AND	#$0F
-	STA	BACKGRND
-NotUp
+	BPL	AfterUp
+
+	;================
+	; Handle UP here
+	;================
+	DEC	HighlightIndex
+	LDA	HighlightIndex
+	CMP	#$FF
+	BNE	AfterUp
+	LDA	#13
+	STA	HighlightIndex
+
+AfterUp
 	LDA	SWCHA
 	AND	#$F0
 	STA	PrevJoystickState
 	RTS
-;============================
+
+AfterJoystickProcessHighlighting
+	;=======================
+	; 1 - savekey detection
+	; 2a 2b - savekey address
+	; 3a 3b 3c 3d 3e - savekey data 1
+	; 4a 4b 4c 4d 4e - savekey data 2
+	; 5 - send data
+	; 6 - read data
+	; 7 - bytes received
+	;=======================
+	; First things first-- make every editable text GREY
+	LDX	#13
+LoopToCleanAllText
+	LDA	ColorPtrTableLSB,X
+	STA	IndirPtr
+	LDA	ColorPtrTableMSB,X
+	STA	IndirPtr+1
+	LDY	#0
+	LDA	(IndirPtr),Y ; load the current color
+	AND	#%00011111
+	ORA	#GREY
+	STA	(IndirPtr),Y
+	DEX
+	BPL	LoopToCleanAllText
+
+	; Next, we want the "Received byte" to be Green to make it stand out
+	LDA	Color7
+	AND	#%00011111
+	ORA	#GREEN
+	STA	Color7
+
+	; Next, let's highlight the currently selected word
+	LDX	HighlightIndex
+	LDA	ColorPtrTableLSB,X
+	STA	IndirPtr
+	LDA	ColorPtrTableMSB,X
+	STA	IndirPtr+1
+	LDY	#0
+	LDA	(IndirPtr),Y ; load the current color
+	AND	#%00011111
+	ORA	#WHITE
+	STA	(IndirPtr),Y
+	RTS
+
+ColorPtrTableLSB
+	dc.b	#<Color2a
+	dc.b	#<Color2b
+	dc.b	#<Color3a
+	dc.b	#<Color3b
+	dc.b	#<Color3c
+	dc.b	#<Color3d
+	dc.b	#<Color3e
+	dc.b	#<Color4a
+	dc.b	#<Color4b
+	dc.b	#<Color4c
+	dc.b	#<Color4d
+	dc.b	#<Color4e
+	dc.b	#<Color5
+	dc.b	#<Color6
+
+ColorPtrTableMSB
+	dc.b	#>Color2a
+	dc.b	#>Color2b
+	dc.b	#>Color3a
+	dc.b	#>Color3b
+	dc.b	#>Color3c
+	dc.b	#>Color3d
+	dc.b	#>Color3e
+	dc.b	#>Color4a
+	dc.b	#>Color4b
+	dc.b	#>Color4c
+	dc.b	#>Color4d
+	dc.b	#>Color4e
+	dc.b	#>Color5
+	dc.b	#>Color6
 
 ;############################################################
 ; CHMAP Pointers to the graphic data are here - $1800 in RAM
@@ -773,6 +918,12 @@ CHMAP_Hyphen
 
 CHMAP_Slash
    STR_LEN "/", CHMAP_Slash
+
+STR_LEN_CHMAP_Highlight equ 12 ; the longest item to highlight is 12 characters
+CHMAP_Highlight
+	dc.b	$80,$80,$80,$80
+	dc.b	$80,$80,$80,$80
+	dc.b	$80,$80,$80,$80
 
 ;===============================================================================
 ; Any "dynamic" CHMAP goes at the top of the list, so they can be copied to RAM
@@ -972,6 +1123,8 @@ DL_Line8
 	dc.b	<CHMAP_Line8_Dynamic_Passed
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_RAM_Start
+CodeColor1
+Color1	equ	CodeColor1-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE1+$20-STR_LEN_CHMAP_Line8_Dynamic_Passed ; PALETTE 1 = green
 	dc.b	76 ; HPos (0-159)
 
@@ -1020,6 +1173,8 @@ DL_Line14
 	dc.b	<CHMAP_Line14_String1
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line14_String1
+CodeColor2a
+Color2a	equ	CodeColor2a-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line14_String1
 	dc.b	12 ; HPos (0-159)
 
@@ -1032,6 +1187,8 @@ DL_Line14
 	dc.b	<CHMAP_Line14_String3
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line14_String3
+CodeColor2b
+Color2b	equ	CodeColor2b-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line14_String3
 	dc.b	52 ; HPos (0-159)
 
@@ -1056,6 +1213,8 @@ DL_Line17
 	dc.b	<CHMAP_Line17_String1
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line17_String1
+CodeColor3a
+Color3a	equ	CodeColor3a-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String1
 	dc.b	12 ; HPos (0-159)
 
@@ -1068,6 +1227,8 @@ DL_Line17
 	dc.b	<CHMAP_Line17_String2
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line17_String2
+CodeColor3b
+Color3b	equ	CodeColor3b-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String2
 	dc.b	52 ; HPos (0-159)
 
@@ -1080,6 +1241,8 @@ DL_Line17
 	dc.b	<CHMAP_Line17_String3
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line17_String3
+CodeColor3c
+Color3c	equ	CodeColor3c-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String3
 	dc.b	88 ; HPos (0-159)
 
@@ -1092,6 +1255,8 @@ DL_Line17
 	dc.b	<CHMAP_Line17_String4
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line17_String4
+CodeColor3d
+Color3d	equ	CodeColor3d-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String4
 	dc.b	120 ; HPos (0-159)
 
@@ -1104,6 +1269,8 @@ DL_Line17
 	dc.b	<CHMAP_Line17_String5
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line17_String5
+CodeColor3e
+Color3e	equ	CodeColor3e-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String5
 	dc.b	144 ; HPos (0-159)
 
@@ -1119,6 +1286,8 @@ DL_Line18
 	dc.b	<CHMAP_Line18_String1
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line18_String1
+CodeColor4a
+Color4a	equ	CodeColor4a-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String1
 	dc.b	12 ; HPos (0-159)
 
@@ -1131,6 +1300,8 @@ DL_Line18
 	dc.b	<CHMAP_Line18_String2
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line18_String2
+CodeColor4b
+Color4b	equ	CodeColor4b-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String2
 	dc.b	52 ; HPos (0-159)
 
@@ -1143,6 +1314,8 @@ DL_Line18
 	dc.b	<CHMAP_Line18_String3
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line18_String3
+CodeColor4c
+Color4c	equ	CodeColor4c-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String3
 	dc.b	92 ; HPos (0-159)
 
@@ -1155,6 +1328,8 @@ DL_Line18
 	dc.b	<CHMAP_Line18_String4
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line18_String4
+CodeColor4d
+Color4d	equ	CodeColor4d-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String4
 	dc.b	120 ; HPos (0-159)
 
@@ -1167,6 +1342,8 @@ DL_Line18
 	dc.b	<CHMAP_Line18_String5
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line18_String5
+CodeColor4e
+Color4e	equ	CodeColor4e-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String5
 	dc.b	144 ; HPos (0-159)
 
@@ -1191,6 +1368,8 @@ DL_Line21
 	dc.b	<CHMAP_Line21
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line21
+CodeColor5
+Color5	equ	CodeColor5-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line21
 	dc.b	12 ; HPos (0-159)
 
@@ -1206,6 +1385,8 @@ DL_Line22
 	dc.b	<CHMAP_Line22
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_Line22
+CodeColor6
+Color6	equ	CodeColor6-Code_DL_Start+DL_RAM_Start
 	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line22
 	dc.b	12 ; HPos (0-159)
 
@@ -1221,6 +1402,8 @@ DL_Line24
         dc.b    <CHMAP_Bytes_Read
         dc.b    $60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
         dc.b    >CHMAP_Bytes_Read
+CodeColor7
+Color7	equ	CodeColor7-Code_DL_Start+DL_RAM_Start
         dc.b    PALETTE3+$20-STR_LEN_CHMAP_Bytes_Read
         dc.b    48 ; HPos (0-159)
 
