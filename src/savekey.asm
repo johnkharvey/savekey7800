@@ -24,8 +24,9 @@ LocationIndex			ds	1	;	$46
 SendBlockIndex			ds	1	;	$47
 SaveKeyLowByte			ds	1	;	$48
 SaveKeyHighByte			ds	1	;	$49
+SaveKeyBytesToRead		ds	1	;	$4A
 ; Canary RAM address, courtesy of Atariage user RevEng
-Canary				ds	1	;	$4A
+Canary				ds	1	;	$4B
 
 ;################################################################
 ; CHMAP RAM
@@ -166,7 +167,7 @@ write_loop
 	LDA	Save_Info_RAM,x ; get byte from RAM
 	JSR	i2c_txbyte ; transmit to EEPROM
 	INX
-	CPX	#$08 ; 8 bytes sent?
+	CPX	SaveKeyBytesToRead ; a dynamic amount of bytes sent
 	BNE	write_loop
 	JSR	i2c_stopwrite ; terminate write and commit to memory
 	LDA	#0 ; Let's set the Accumulator to Zero as a "success" error code
@@ -190,7 +191,7 @@ read_loop
 	JSR	i2c_rxbyte ; read byte from EEPROM
 	STA	Save_Info_RAM,x ; store in buffer
 	INX
-	CPX	#$08 ; 8 bytes read?
+	CPX	#$08 ; 8 bytes read (we will always read 8)
 	BNE	read_loop
 	JSR	i2c_stopread ; terminate read
 	LDA	#0 ; Let's set the Accumulator to Zero as a "success" error code
@@ -537,25 +538,6 @@ RamCleanupLoop3
 	JSR	SetupPALorNTSCPalettes
         ;===============================================
 
-;	;================================
-;	; SaveKey / AtariVox integration
-;	;================================
-;	; Detect if there's a SaveKey there
-;	JSR	DetectSaveKey
-;	; if the above subroutine passes, it returns $00, if it fails, it returns $FF
-;	BNE	NoSaveKeyInstalled
-;SaveKeyInstalled
-;	LDA	#$0 ; Now that we're done with SaveKey functions for now, let's turn both Joystick ports back to INPUTS
-;	STA	SWACNT
-;	;LDA	$C3 ; green
-;	;STA	BACKGRND
-;	JMP	AfterSaveKeyRead
-;NoSaveKeyInstalled
-;	;LDA	#$33 ; red
-;	;STA	BACKGRND
-;AfterSaveKeyRead
-;	JSR	WaitVBLANK
-
 	;==========================
 	; Default background Color
 	;==========================
@@ -577,6 +559,9 @@ RamCleanupLoop3
 	LDA	#2
 	STA	SendBlockIndex	; This is the pointer to what is being sent ("chicken" is the default).
 				; Valid indexes are 2-11
+
+	LDA	#7
+	STA	SaveKeyBytesToRead	; our first default is to send 7 bytes (for the word 'chicken')
 
 
 	;=========================
@@ -608,7 +593,7 @@ CanaryIsAlive
 				; (D1 and D0 = %11, so 320A or 320C)
 				; (DL mode byte D7 = 0, so 320A)
 	JMP	MainLoop
-	;===================
+	;===================================
 
 	;=======================================================
 	; Subroutine - Copy the text data into the RAM at $1800
@@ -724,7 +709,7 @@ CompareCounter:
 	STA	P0C2
 	LDA	#$E3 ; green text
 	STA	P1C2
-	LDA	#$53 ; red text
+	LDA	#$65 ; red text
 	STA	P2C2
 	LDA	#$3A ; yellow text
 	STA	P3C2
@@ -744,9 +729,9 @@ NoPalSetup:
 ;=============================
 	LDA	#$87 ; blue text
 	STA	P0C2
-	LDA	#$C3 ; green text
+	LDA	#$C7 ; green text
 	STA	P1C2
-	LDA	#$33 ; red text
+	LDA	#$45 ; red text
 	STA	P2C2
 	LDA	#$1A ; yellow text
 	STA	P3C2
@@ -918,12 +903,15 @@ CheckIfInTextToSendArea
 	; we were between 2 and 11. Save
 	STA	SendBlockIndex
 	; We will deal with putting this somewhere for the SaveKey later. Don't worry about it here.
+	JMP	DoneWithButtons
 
 CheckIfInSendDataArea
 	; Are we in the "Send Data" area? If so, we need to send from SaveKey
 	CMP	#12
 	BNE	CheckIfInReceiveDataArea
 	; Let's send data!
+	JSR	SendDataPressed
+	RTS
 
 CheckIfInReceiveDataArea
 	; Are we in the "Receive 8 bytes" area? If so, we need to receive from SaveKey
@@ -931,6 +919,8 @@ CheckIfInReceiveDataArea
 	CMP	#13
 	BNE	DoneWithButtons
 	; Let's receive Data
+	JSR	ReceiveDataPressed
+	RTS
 
 DoneWithButtons
 	RTS
@@ -1033,6 +1023,77 @@ ColorPtrTableMSB
 	dc.b	#>Color4e
 	dc.b	#>Color5
 	dc.b	#>Color6
+
+ReceiveDataPressed
+	;JSR	ReadSaveKey	; This copies data from the SaveKey to Save_Info_RAM
+				; Now, we need to copy this to CHMAP_Bytes_Read so we can see it on-screen
+	LDX	#7
+CopySaveKeyRAMtoCHMAP
+	LDA	Save_Info_RAM,X
+	STA	CHMAP_Bytes_Read,X
+	DEX
+	BPL	CopySaveKeyRAMtoCHMAP
+	RTS
+
+SendDataPressed
+	LDX	SendBlockIndex	; 2-11
+	LDA	LengthOfBytesToSend,X
+	STA	SaveKeyBytesToRead
+	LDA	SendBytesMapLSB,X
+	STA	IndirPtr
+	LDA	SendBytesMapMSB,X
+	STA	IndirPtr+1
+	LDY	SaveKeyBytesToRead
+	DEY	; the bytes are 1-8, need to make 0-7
+PopulateSave_Info_RAM
+	LDA	(IndirPtr),Y
+	STA	Save_Info_RAM,Y
+	DEY
+	BPL	PopulateSave_Info_RAM
+	;JSR	WriteSaveKey
+	RTS
+
+LengthOfBytesToSend
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	7 ; Chicken
+	dc.b	6 ; Weasel
+	dc.b	5 ; Stork
+	dc.b	3 ; Pig
+	dc.b	2 ; Ox
+	dc.b	7 ; 0000000
+	dc.b	7 ; <blank>
+	dc.b	4 ; Test
+	dc.b	3 ; 333
+	dc.b	2 ; 22
+
+SendBytesMapMSB
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	#>CHMAP_Line17_String1 ; Chicken
+	dc.b	#>CHMAP_Line17_String2 ; Weasel
+	dc.b	#>CHMAP_Line17_String3 ; Stork
+	dc.b	#>CHMAP_Line17_String4 ; Pig
+	dc.b	#>CHMAP_Line17_String5 ; Ox
+	dc.b	#>CHMAP_Line18_String1 ; 0000000
+	dc.b	#>CHMAP_Line18_String2 ; <blank>
+	dc.b	#>CHMAP_Line18_String3 ; Test
+	dc.b	#>CHMAP_Line18_String4 ; 333
+	dc.b	#>CHMAP_Line18_String5 ; 22
+
+SendBytesMapLSB
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	#<CHMAP_Line17_String1 ; Chicken
+	dc.b	#<CHMAP_Line17_String2 ; Weasel
+	dc.b	#<CHMAP_Line17_String3 ; Stork
+	dc.b	#<CHMAP_Line17_String4 ; Pig
+	dc.b	#<CHMAP_Line17_String5 ; Ox
+	dc.b	#<CHMAP_Line18_String1 ; 0000000
+	dc.b	#<CHMAP_Line18_String2 ; <blank>
+	dc.b	#<CHMAP_Line18_String3 ; Test
+	dc.b	#<CHMAP_Line18_String4 ; 333
+	dc.b	#<CHMAP_Line18_String5 ; 22
 
 ;############################################################
 ; CHMAP Pointers to the graphic data are here - $1800 in RAM
@@ -1156,7 +1217,7 @@ CHMAP_Line22
 CHMAP_Line24
    STR_LEN "BYTES READ:", CHMAP_Line24
 CHMAP_Bytes_Read
-   STR_LEN "<TBD>", CHMAP_Bytes_Read
+   STR_LEN "<TBD>   ", CHMAP_Bytes_Read
 
 ;###################################
 ; The DL starts here - $1900 in RAM
@@ -1524,9 +1585,9 @@ DL_Line24
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line24
 	dc.b	0 ; HPos (0-159)
 
-        dc.b    <CHMAP_Bytes_Read
+        dc.b    <Save_Info_RAM
         dc.b    $60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-        dc.b    >CHMAP_Bytes_Read
+        dc.b    >Save_Info_RAM
 CodeColor7
 Color7	equ	CodeColor7-Code_DL_Start+DL_RAM_Start
         dc.b    PALETTE3+$20-STR_LEN_CHMAP_Bytes_Read
