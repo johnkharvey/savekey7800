@@ -22,8 +22,10 @@ HighlightIndex			ds	1	;	$43
 IndirPtr			ds	2	;	$44-$45
 LocationIndex			ds	1	;	$46
 SendBlockIndex			ds	1	;	$47
+SaveKeyLowByte			ds	1	;	$48
+SaveKeyHighByte			ds	1	;	$49
 ; Canary RAM address, courtesy of Atariage user RevEng
-Canary				ds	1	;	$48
+Canary				ds	1	;	$4A
 
 ;################################################################
 ; CHMAP RAM
@@ -106,6 +108,7 @@ PALETTE5		equ	#%10100000
 WHITE			equ	PALETTE5
 
 PALETTE6		equ	#%11000000
+
 PALETTE7		equ	#%11100000
 
 ; SaveKey equates
@@ -154,9 +157,9 @@ STR_LEN_{2} = . - .start
 WriteSaveKey
 	JSR	i2c_startwrite ; Start signal and $a0 command byte
 	BCS	eeprom_error ; exit if command byte not acknowledged
-	LDA	#$30 ; upper byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyHighByte ; upper byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
-	LDA	#$00 ; lower byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyLowByte	; lower byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
 	LDX	#$00
 write_loop
@@ -176,9 +179,9 @@ write_loop
 ReadSaveKey
 	JSR	i2c_startwrite ; Start signal and $a0 command byte
 	BCS	eeprom_error ; exit if command byte not acknowledged
-	LDA	#$30 ; upper byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyHighByte ; upper byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
-	LDA	#$00 ; lower byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyLowByte  ; lower byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
 	JSR	i2c_stopwrite ; end of “fake” write
 	JSR	i2c_startread ; Start signal and $a1 command byte
@@ -199,9 +202,9 @@ read_loop
 DetectSaveKey
 	JSR	i2c_startwrite ; Start signal and $a0 command byte
 	BCS	eeprom_error ; exit if command byte not acknowledged
-	LDA	#$30 ; upper byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyHighByte ; upper byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
-	LDA	#$00 ; lower byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyLowByte  ; lower byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
 	JSR	i2c_stopwrite
 	LDA	#0 ; Let's set the Accumulator to Zero as a "success" error code
@@ -534,36 +537,47 @@ RamCleanupLoop3
 	JSR	SetupPALorNTSCPalettes
         ;===============================================
 
-	;================================
-	; SaveKey / AtariVox integration
-	;================================
-	; Detect if there's a SaveKey there
-	JSR	DetectSaveKey
-	; if the above subroutine passes, it returns $00, if it fails, it returns $FF
-	BNE	NoSaveKeyInstalled
-SaveKeyInstalled
-	LDA	#$0 ; Now that we're done with SaveKey functions for now, let's turn both Joystick ports back to INPUTS
-	STA	SWACNT
-	;LDA	$C3 ; green
-	;STA	BACKGRND
-	JMP	AfterSaveKeyRead
-NoSaveKeyInstalled
-	;LDA	#$33 ; red
-	;STA	BACKGRND
-AfterSaveKeyRead
-	JSR	WaitVBLANK
+;	;================================
+;	; SaveKey / AtariVox integration
+;	;================================
+;	; Detect if there's a SaveKey there
+;	JSR	DetectSaveKey
+;	; if the above subroutine passes, it returns $00, if it fails, it returns $FF
+;	BNE	NoSaveKeyInstalled
+;SaveKeyInstalled
+;	LDA	#$0 ; Now that we're done with SaveKey functions for now, let's turn both Joystick ports back to INPUTS
+;	STA	SWACNT
+;	;LDA	$C3 ; green
+;	;STA	BACKGRND
+;	JMP	AfterSaveKeyRead
+;NoSaveKeyInstalled
+;	;LDA	#$33 ; red
+;	;STA	BACKGRND
+;AfterSaveKeyRead
+;	JSR	WaitVBLANK
 
+	;==========================
 	; Default background Color
+	;==========================
 	LDA	#$00
 	STA	BACKGRND
 
-	;======================================
-	; Set up default highlighting pointers
-	;======================================
+	;=======================================================
+	; Set up default highlighting pointers and their values
+	;=======================================================
 	LDA	#0
-	STA	LocationIndex 
+	STA	LocationIndex	; This stores a 0 or a 1 for the SaveKey Location as seen on the screen.
+				; If it is a 0, it corresponds to $3040.  If it's a 1, it corresponds to $3048
+				; So, let's default to 0.
+	LDA	#$30
+	STA	SaveKeyHighByte	; Let's save the corresponding $3040 bytes too
+	LDA	#$40
+	STA	SaveKeyLowByte	; Let's save the corresponding $3040 bytes too
+
 	LDA	#2
-	STA	SendBlockIndex
+	STA	SendBlockIndex	; This is the pointer to what is being sent ("chicken" is the default).
+				; Valid indexes are 2-11
+
 
 	;=========================
 	; Fall into the Main Loop
@@ -581,8 +595,7 @@ CanaryIsAlive
 	;===================================
 	; Handle all housekeeping functions
 	;===================================
-	;JSR	CheckReset
-	;JSR	CheckSelect
+	JSR	CheckSaveKey
 	JSR	CheckJoystick
 	JSR	CheckButton
 	JSR	AfterJoystickProcessHighlighting
@@ -742,6 +755,44 @@ NoPalSetup:
 	RTS
 	;===================
 
+
+CheckSaveKey
+	;================================
+	; SaveKey / AtariVox integration
+	;================================
+; Detect if there's a SaveKey there
+	JSR	DetectSaveKey
+	; if the above subroutine passes, it returns $00, if it fails, it returns $FF
+	BNE	NoSaveKeyInstalled
+SaveKeyInstalled
+	LDA	#$0 ; Now that we're done with SaveKey functions for now, let's turn both Joystick ports back to INPUTS
+	STA	SWACNT
+	;===============
+	; SAVEKEY FOUND
+	; - Make the DL say PASSED and make it GREEN
+	;===============
+	LDA	#<CHMAP_Line8_Dynamic_Passed
+	STA	SaveKeyPassFailDL
+	LDA	Color1
+	AND	#%00011111
+	ORA	#GREEN
+	STA	Color1
+	JMP	AfterSaveKeyRead
+NoSaveKeyInstalled
+	;===================
+	; SAVEKEY NOT FOUND
+	; - Make the DL say FAILED and make it RED
+	;===================
+	LDA	#<CHMAP_Line8_Dynamic_Failed
+	STA	SaveKeyPassFailDL
+	LDA	Color1
+	AND	#%00011111
+	ORA	#RED
+	STA	Color1
+AfterSaveKeyRead
+	;JSR	WaitVBLANK
+	RTS
+
 	;============================
 	; Function - Joystick checks
 	;============================
@@ -827,28 +878,61 @@ AfterUp
 	STA	PrevJoystickState
 	RTS
 
+;==========
 CheckButton
+;==========
 	LDA	INPT1
 	AND	#%10000000
-	BEQ	ButtonNotPressed
+	BEQ	DoneWithButtons ; wasn't pressed this round
 
+	;================
 	; BUTTON PRESSED
+	;================
+	; Are we on the "Address" Area? If so, save what we selected to keep it highlighted on screen
 	LDA	HighlightIndex
-	; Locations 0-1 are the send byte.  If button pressed, we save the current location
+	; Locations 0-1 are the send byte. If button pressed, we save the current location
 	BEQ	SaveLocationIndex
 	CMP	#1
-	BNE	PastSaveLocationIndex
+	BNE	CheckIfInTextToSendArea
 SaveLocationIndex
-	; we were a 0 or 1, we fall here.  Save the new index
+	; we were a 0 or 1, we fall here. Save the new index.
 	STA	LocationIndex
-	JMP	PastSaveSendBlockIndex
-PastSaveLocationIndex
+	; Now, save the bytes that the SaveKey needs. Values are $3040 or $3048
+	LDA	#$30
+	STA	SaveKeyHighByte
+	LDA	HighlightIndex
+	BNE	UseSecondValue
+	LDA	#$40
+	STA	SaveKeyLowByte
+	JMP	DoneWithButtons
+UseSecondValue
+	LDA	#$48
+	STA	SaveKeyLowByte
+	JMP	DoneWithButtons
+
+CheckIfInTextToSendArea
+	; Are we in the "Send data" area? If so, save what we selected
+	LDA	HighlightIndex
 	CMP	#12
-	BPL	PastSaveSendBlockIndex
-	; we were between 2 and 11.  Save
+	BPL	CheckIfInSendDataArea
+	; we were between 2 and 11. Save
 	STA	SendBlockIndex
-PastSaveSendBlockIndex
-ButtonNotPressed
+	; We will deal with putting this somewhere for the SaveKey later. Don't worry about it here.
+
+CheckIfInSendDataArea
+	; Are we in the "Send Data" area? If so, we need to send from SaveKey
+	CMP	#12
+	BNE	CheckIfInReceiveDataArea
+	; Let's send data!
+
+CheckIfInReceiveDataArea
+	; Are we in the "Receive 8 bytes" area? If so, we need to receive from SaveKey
+	; (Note: We should never fail this compare as this is the highest allowable index)
+	CMP	#13
+	BNE	DoneWithButtons
+	; Let's receive Data
+
+DoneWithButtons
 	RTS
 
 AfterJoystickProcessHighlighting
@@ -963,12 +1047,6 @@ CHMAP_Hyphen
 
 CHMAP_Slash
    STR_LEN "/", CHMAP_Slash
-
-STR_LEN_CHMAP_Highlight equ 12 ; the longest item to highlight is 12 characters
-CHMAP_Highlight
-	dc.b	$80,$80,$80,$80
-	dc.b	$80,$80,$80,$80
-	dc.b	$80,$80,$80,$80
 
 ;===============================================================================
 ; Any "dynamic" CHMAP goes at the top of the list, so they can be copied to RAM
@@ -1165,6 +1243,8 @@ DL_Line8
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line8_Hardcode
 	dc.b	0 ; HPos (0-159)
 
+CodeSaveKeyPassFailDL
+SaveKeyPassFailDL	equ	CodeSaveKeyPassFailDL-Code_DL_Start+DL_RAM_Start
 	dc.b	<CHMAP_Line8_Dynamic_Passed
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_RAM_Start
