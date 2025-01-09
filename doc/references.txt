@@ -1,0 +1,3 @@
+For further reference, see:
+ * https://github.com/johnkharvey/savekey7800/blob/main/doc/AtariVoxDevelopment.pdf
+ * https://atariage.com/atarivox/atarivox_mem_list.html for available memory slots

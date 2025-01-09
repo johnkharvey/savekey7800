@@ -16,10 +16,17 @@
 	ORG	$40	;	$40-$FF
 ;################################################################
 PalOrNtsc			ds	1	;	$40
-PrevJoystickState		ds	1	;	$41
-SaveKeyScratch			ds	1	;	$42 ; SaveKey needs a 1-byte scratchpad
+SaveKeyScratch			ds	1	;	$41 ; SaveKey needs a 1-byte scratchpad
+PrevJoystickState		ds	1	;	$42
+HighlightIndex			ds	1	;	$43
+IndirPtr			ds	2	;	$44-$45
+LocationIndex			ds	1	;	$46
+SendBlockIndex			ds	1	;	$47
+SaveKeyLowByte			ds	1	;	$48
+SaveKeyHighByte			ds	1	;	$49
+SaveKeyBytesToRead		ds	1	;	$4A
 ; Canary RAM address, courtesy of Atariage user RevEng
-Canary				ds	1	;	$43
+Canary				ds	1	;	$4B
 
 ;################################################################
 ; CHMAP RAM
@@ -32,15 +39,14 @@ CHMAP_RAM_Start			ds	256	;	$1800-$18FF
 ; DL RAM
 	ORG	$1900
 ;################################################################
-t
-DL_RAM_Start			ds	256	;	$1900-$19FF
+DL_RAM_Start			ds	512	;	$1900-$1AFF
 
 ;################################################################
 ; Another RAM area (this is a good place for SaveKey info)
 	ORG	$1F00
 ;################################################################
-Save_Info_RAM	ds	8
-
+Save_Info_RAM			ds	8	; This is where bytes will temporarily be pulled or pushed from the SaveKey
+RAM_CHMAP_Bytes_Read		ds	8	; This is where the bytes will be displayed to the screen
 
 ;################################################################
 ; End of Memory 1 - for origin reverse-indexed trapping
@@ -85,13 +91,26 @@ DLLRam:
 GRAPHICS_SPACE		equ	$00	; a null character graphic pointer
 
 PALETTE0		equ	#%00000000
-PALETTE1		equ	#%00000001
-PALETTE2		equ	#%00000010
-PALETTE3		equ	#%00000011
-PALETTE4		equ	#%00000100
-PALETTE5		equ	#%00000101
-PALETTE6		equ	#%00000110
-PALETTE7		equ	#%00000111
+BLUE			equ	PALETTE0
+
+PALETTE1		equ	#%00100000
+GREEN			equ	PALETTE1
+
+PALETTE2		equ	#%01000000
+RED			equ	PALETTE2
+
+PALETTE3		equ	#%01100000
+YELLOW			equ	PALETTE3
+
+PALETTE4		equ	#%10000000
+GREY			equ	PALETTE4
+
+PALETTE5		equ	#%10100000
+WHITE			equ	PALETTE5
+
+PALETTE6		equ	#%11000000
+
+PALETTE7		equ	#%11100000
 
 ; SaveKey equates
 SK_BYTES		equ	3		; define how many bytes your want to store
@@ -139,16 +158,16 @@ STR_LEN_{2} = . - .start
 WriteSaveKey
 	JSR	i2c_startwrite ; Start signal and $a0 command byte
 	BCS	eeprom_error ; exit if command byte not acknowledged
-	LDA	#$30 ; upper byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyHighByte ; upper byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
-	LDA	#$00 ; lower byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyLowByte	; lower byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
 	LDX	#$00
 write_loop
 	LDA	Save_Info_RAM,x ; get byte from RAM
 	JSR	i2c_txbyte ; transmit to EEPROM
 	INX
-	CPX	#$08 ; 8 bytes sent?
+	CPX	SaveKeyBytesToRead ; a dynamic amount of bytes sent
 	BNE	write_loop
 	JSR	i2c_stopwrite ; terminate write and commit to memory
 	LDA	#0 ; Let's set the Accumulator to Zero as a "success" error code
@@ -161,9 +180,9 @@ write_loop
 ReadSaveKey
 	JSR	i2c_startwrite ; Start signal and $a0 command byte
 	BCS	eeprom_error ; exit if command byte not acknowledged
-	LDA	#$30 ; upper byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyHighByte ; upper byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
-	LDA	#$00 ; lower byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyLowByte  ; lower byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
 	JSR	i2c_stopwrite ; end of “fake” write
 	JSR	i2c_startread ; Start signal and $a1 command byte
@@ -172,7 +191,7 @@ read_loop
 	JSR	i2c_rxbyte ; read byte from EEPROM
 	STA	Save_Info_RAM,x ; store in buffer
 	INX
-	CPX	#$08 ; 8 bytes read?
+	CPX	#$08 ; 8 bytes read (we will always read 8)
 	BNE	read_loop
 	JSR	i2c_stopread ; terminate read
 	LDA	#0 ; Let's set the Accumulator to Zero as a "success" error code
@@ -184,9 +203,9 @@ read_loop
 DetectSaveKey
 	JSR	i2c_startwrite ; Start signal and $a0 command byte
 	BCS	eeprom_error ; exit if command byte not acknowledged
-	LDA	#$30 ; upper byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyHighByte ; upper byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
-	LDA	#$00 ; lower byte of address.  We'll use the Scratchpad address as defined in https://atariage.com/atarivox/atarivox_mem_list.html
+	LDA	SaveKeyLowByte  ; lower byte of address. See https://atariage.com/atarivox/atarivox_mem_list.html ; we're using scratchpad areas
 	JSR	i2c_txbyte
 	JSR	i2c_stopwrite
 	LDA	#0 ; Let's set the Accumulator to Zero as a "success" error code
@@ -360,9 +379,11 @@ eeprom_error
 	ORG	$8780
 ;################################################################
 
+	dc.b	$FF ; safety in case we have too many bytes in the section above
+
 ;################################################################
 ; Main execution code goes here
-	ORG	$D000
+	ORG	$C000
 ;################################################################
 
 	;==============================================================
@@ -469,17 +490,42 @@ RamCleanupLoop3
 	;================================
 	; Program-specific Startup inits
 	;================================
-	LDA	#$87
-	STA	P0C2		; blue text
-	LDA	#$26
-	STA	P0C1
-	LDA	#$36
-	STA	P0C3
 	LDA	#$00		; black background, for starters
 	STA	BACKGRND
+	STA	HighlightIndex
 	LDA	#$80		; the font data is located at $8000
 	STA	CHBASE
 	;================================
+
+	;===============================================
+	; Let's make the default for all Palletes white
+	;===============================================
+	LDA	#$0F	; white for both NTSC and PAL
+	STA	P0C1
+	STA	P0C2
+	STA	P0C3
+	STA	P1C1
+	STA	P1C2
+	STA	P1C3
+	STA	P2C1
+	STA	P2C2
+	STA	P2C3
+	STA	P3C1
+	STA	P3C2
+	STA	P3C3
+	STA	P4C1
+	STA	P4C2
+	STA	P4C3
+	STA	P5C1
+	STA	P5C2
+	STA	P5C3
+	STA	P6C1
+	STA	P6C2
+	STA	P6C3
+	STA	P7C1
+	STA	P7C2
+	STA	P7C3
+	;===============================================
 
         ;===============================================
         ; Set up Character maps, DLL's, DL's.
@@ -492,28 +538,39 @@ RamCleanupLoop3
 	JSR	SetupPALorNTSCPalettes
         ;===============================================
 
-	;================================
-	; SaveKey / AtariVox integration
-	;================================
-	; Detect if there's a SaveKey there
-	JSR	DetectSaveKey
-	; if the above subroutine passes, it returns $00, if it fails, it returns $FF
-	BNE	NoSaveKeyInstalled
-SaveKeyInstalled
-	LDA	#$0 ; Now that we're done with SaveKey functions for now, let's turn both Joystick ports back to INPUTS
-	STA	SWACNT
-	; If there's a savekey installed, delete the "not" DL
-        LDA     $00
-        STA     $1900+DL_Not-$E100
-        STA     $1901+DL_Not-$E100
-	LDA	#$C3 ; green
+	;==========================
+	; Default background Color
+	;==========================
+	LDA	#$00
 	STA	BACKGRND
-	JMP	AfterSaveKeyRead
-NoSaveKeyInstalled
-	LDA	#$43 ; red
-	STA	BACKGRND
-AfterSaveKeyRead
-	JSR	WaitVBLANK
+
+	;=======================================================
+	; Set up default highlighting pointers and their values
+	;=======================================================
+	LDA	#0
+	STA	LocationIndex	; This stores a 0 or a 1 for the SaveKey Location as seen on the screen.
+				; If it is a 0, it corresponds to $3040.  If it's a 1, it corresponds to $3048
+				; So, let's default to 0.
+	LDA	#$30
+	STA	SaveKeyHighByte	; Let's save the corresponding $3040 bytes too
+	LDA	#$40
+	STA	SaveKeyLowByte	; Let's save the corresponding $3040 bytes too
+
+	LDA	#2
+	STA	SendBlockIndex	; This is the pointer to what is being sent ("chicken" is the default).
+				; Valid indexes are 2-11
+
+	LDA	#7
+	STA	SaveKeyBytesToRead	; our first default is to send 7 bytes (for the word 'chicken')
+
+	; Let's copy the "bytes read" ROM map into RAM
+	LDX	#7
+Copy_Bytes_Read_Into_RAM
+	LDA	CHMAP_Bytes_Read,X
+	STA	RAM_CHMAP_Bytes_Read,X
+	DEX
+	BPL	Copy_Bytes_Read_Into_RAM
+
 
 	;=========================
 	; Fall into the Main Loop
@@ -531,18 +588,20 @@ CanaryIsAlive
 	;===================================
 	; Handle all housekeeping functions
 	;===================================
-	;INC	IncreasingCounter
-	;JSR	CheckReset
-	;JSR	CheckSelect
-	;JSR	CheckJoystick
+	JSR	CheckSaveKey
+	JSR	CheckJoystick
+	JSR	CheckButton
+	JSR	AfterJoystickProcessHighlighting
 	; Now, turn on the screen
 	LDA	#%01001011	; then enable normal color output,
 	STA	CTRL		; turn on DMA, set one byte wide
 				; characters, make the border black
 				; enable transparent output, set screen
 				; mode to 320A or 320C
+				; (D1 and D0 = %11, so 320A or 320C)
+				; (DL mode byte D7 = 0, so 320A)
 	JMP	MainLoop
-	;===================
+	;===================================
 
 	;=======================================================
 	; Subroutine - Copy the text data into the RAM at $1800
@@ -550,7 +609,7 @@ CanaryIsAlive
 Copy_CHMAPs:
 	LDX	#$00
 Copy_CHMAPs_Loop:
-	LDA	$e000,X
+	LDA	$D000,X
 	STA	$1800,X
 	INX
 	BNE	Copy_CHMAPs_Loop
@@ -562,8 +621,10 @@ Copy_CHMAPs_Loop:
 Copy_DLs:
 	LDX	#$00
 Copy_DLs_Loop:
-	LDA	$e100,X
+	LDA	$E000,X
 	STA	$1900,X
+	LDA	$E100,X
+	STA	$1A00,X
 	INX
 	BNE	Copy_DLs_Loop
 	RTS
@@ -617,6 +678,9 @@ SetupPALorNTSCPalettes
 	; To make a NTSC game run on a PAL console, put 25 blank lines before & after NTSC display.
 	;===================
 	JSR	WaitVBLANK
+WaitVBoverForPALNTSC:
+	BIT	MSTAT
+	BMI	WaitVBoverForPALNTSC	; wait for the VBLANK to end
 	;===================
 
 	;===================
@@ -642,8 +706,22 @@ CompareCounter:
 	LDA	#<DLL_PAL	; prepare PAL setup here
 	STA	DPPL		; setup the pointers for the output
 	JSR	WaitVBLANK	; wait until no DMA would happen
-	RTS
-	;===================
+
+	;============================
+	; PAL Palette initialization
+	;============================
+	; We could theoretically use the NTSC2PALColor macro, but there are
+	; so few colors in this Utility that we can just hardcode
+	;============================
+	LDA	#$A7 ; blue text
+	STA	P0C2
+	LDA	#$E3 ; green text
+	STA	P1C2
+	LDA	#$65 ; red text
+	STA	P2C2
+	LDA	#$3A ; yellow text
+	STA	P3C2
+	;============================
 
 	;===================
 NoPalSetup:
@@ -652,132 +730,520 @@ NoPalSetup:
 	LDA	#<DLL_NTSC	; prepare NTSC setup here
 	STA	DPPL	; setup the pointers for the output
 	JSR	WaitVBLANK	; wait until no DMA would happen
+	;===================
+
+;=============================
+; NTSC Palette initialization
+;=============================
+	LDA	#$87 ; blue text
+	STA	P0C2
+	LDA	#$C7 ; green text
+	STA	P1C2
+	LDA	#$45 ; red text
+	STA	P2C2
+	LDA	#$1A ; yellow text
+	STA	P3C2
+	LDA	#$03
+	STA	P4C2
 	RTS
 	;===================
 
 
+CheckSaveKey
+	;================================
+	; SaveKey / AtariVox integration
+	;================================
+; Detect if there's a SaveKey there
+	JSR	DetectSaveKey
+	; if the above subroutine passes, it returns $00, if it fails, it returns $FF
+	BNE	NoSaveKeyInstalled
+SaveKeyInstalled
+	LDA	#$0 ; Now that we're done with SaveKey functions for now, let's turn both Joystick ports back to INPUTS
+	STA	SWACNT
+	;===============
+	; SAVEKEY FOUND
+	; - Make the DL say PASSED and make it GREEN
+	;===============
+	LDA	#<CHMAP_Line8_Dynamic_Passed
+	STA	SaveKeyPassFailDL
+	LDA	Color1
+	AND	#%00011111
+	ORA	#GREEN
+	STA	Color1
+	JMP	AfterSaveKeyRead
+NoSaveKeyInstalled
+	;===================
+	; SAVEKEY NOT FOUND
+	; - Make the DL say FAILED and make it RED
+	;===================
+	LDA	#<CHMAP_Line8_Dynamic_Failed
+	STA	SaveKeyPassFailDL
+	LDA	Color1
+	AND	#%00011111
+	ORA	#RED
+	STA	Color1
+AfterSaveKeyRead
+	;JSR	WaitVBLANK
+	RTS
+
 	;============================
 	; Function - Joystick checks
 	;============================
-;CheckJoystick
-;	LDA	SWCHA
-;	BMI	NotRt
-;	LDA	PrevJoystickState
-;	BPL	NotRt
-;	; right - increase high nibble of color
-;WrapDown
-;	CLC
-;	LDA	COLOR
-;	ADC	#$10
-;	STA	COLOR
-;	sta	BACKGRND
-;	JMP	NotUp
-;NotRt
-;	ROL
-;	BMI	NotLeft
-;	LDA	PrevJoystickState
-;	ROL
-;	BPL	NotLeft
-;	; left - decrease high nibble of color
-;WrapUp
-;	SEC
-;	LDA	COLOR
-;	SBC	#$10
-;	STA	COLOR
-;	STA	BACKGRND
-;	JMP	NotUp
-;NotLeft
-;	ROL
-;	BMI	NotDown
-;	LDA	PrevJoystickState
-;	ROL
-;	ROL
-;	BPL	NotDown
-;	; down - decrease low nibble of color
-;	DEC	COLOR
-;	LDA	COLOR
-;	STA	BACKGRND
-;	AND	#$0F
-;	CMP	#$0F
-;	BEQ	WrapDown
-;	JMP	NotUp
-;NotDown
-;	ROL
-;	BMI	NotUp
-;	LDA	PrevJoystickState
-;	ROL
-;	ROL
-;	ROL
-;	BPL	NotUp
-;	; up - increase low nibble of color
-;	INC	COLOR
-;	LDA	COLOR
-;	STA	BACKGRND
-;	AND	#$0F
-;	BEQ	WrapUp
-;NotUp
-;	LDA	SWCHA
-;	AND	#$F0
-;	STA	PrevJoystickState
-;	LDA	COLOR
-;	AND	#$0F
-;	CMP	#$0A
-;	BM	INotLetter1
-;	CLC
-;	ADC	#$07
-;NotLetter1
-;	ADC	#$30
-;	STA	RIGHTCOLOR
-;	LDA	COLOR
-;	CLC
-;	AND	#$F0
-;	ROR
-;	ROR
-;	ROR
-;	ROR
-;	CMP	#$0A
-;	BMI	NotLetter2
-;	CLC
-;	ADC	#$07
-;NotLetter2
-;	ADC	#$30
-;	STA	LEFTCOLOR
-;	RTS
-;============================
+CheckJoystick
+	LDA	SWCHA
+	BMI	AfterRight
+	LDA	PrevJoystickState
+	BPL	AfterRight
+
+	;===================
+	; Handle RIGHT here
+	;===================
+	INC	HighlightIndex
+	LDA	HighlightIndex
+	CMP	#14
+	BNE	AfterRight
+	LDA	#0
+	STA	HighlightIndex
+
+AfterRight
+	LDA	SWCHA
+	ROL
+	BMI	AfterLeft
+	LDA	PrevJoystickState
+	ROL
+	BPL	AfterLeft
+
+	;==================
+	; Handle LEFT here
+	;==================
+	DEC	HighlightIndex
+	LDA	HighlightIndex
+	CMP	#$FF
+	BNE	AfterLeft
+	LDA	#13
+	STA	HighlightIndex
+
+AfterLeft
+	LDA	SWCHA
+	ROL
+	ROL
+	BMI	AfterDown
+	LDA	PrevJoystickState
+	ROL
+	ROL
+	BPL	AfterDown
+
+	;==================
+	; Handle DOWN here
+	;==================
+	INC	HighlightIndex
+	LDA	HighlightIndex
+	CMP	#14
+	BNE	AfterDown
+	LDA	#0
+	STA	HighlightIndex
+
+AfterDown
+	LDA	SWCHA
+	ROL
+	ROL
+	ROL
+	BMI	AfterUp
+	LDA	PrevJoystickState
+	ROL
+	ROL
+	ROL
+	BPL	AfterUp
+
+	;================
+	; Handle UP here
+	;================
+	DEC	HighlightIndex
+	LDA	HighlightIndex
+	CMP	#$FF
+	BNE	AfterUp
+	LDA	#13
+	STA	HighlightIndex
+
+AfterUp
+	LDA	SWCHA
+	AND	#$F0
+	STA	PrevJoystickState
+	RTS
+
+;==========
+CheckButton
+;==========
+	LDA	INPT1
+	AND	#%10000000
+	BEQ	DoneWithButtons ; wasn't pressed this round
+
+	;================
+	; BUTTON PRESSED
+	;================
+	; Are we on the "Address" Area? If so, save what we selected to keep it highlighted on screen
+	LDA	HighlightIndex
+	; Locations 0-1 are the send byte. If button pressed, we save the current location
+	BEQ	SaveLocationIndex
+	CMP	#1
+	BNE	CheckIfInTextToSendArea
+SaveLocationIndex
+	; we were a 0 or 1, we fall here. Save the new index.
+	STA	LocationIndex
+	; Now, save the bytes that the SaveKey needs. Values are $3040 or $3048
+	LDA	#$30
+	STA	SaveKeyHighByte
+	LDA	HighlightIndex
+	BNE	UseSecondValue
+	LDA	#$40
+	STA	SaveKeyLowByte
+	JMP	DoneWithButtons
+UseSecondValue
+	LDA	#$48
+	STA	SaveKeyLowByte
+	JMP	DoneWithButtons
+
+CheckIfInTextToSendArea
+	; Are we in the "Send data" area? If so, save what we selected
+	LDA	HighlightIndex
+	CMP	#12
+	BPL	CheckIfInSendDataArea
+	; we were between 2 and 11. Save
+	STA	SendBlockIndex
+	; We will deal with putting this somewhere for the SaveKey later. Don't worry about it here.
+	JMP	DoneWithButtons
+
+CheckIfInSendDataArea
+	; Are we in the "Send Data" area? If so, we need to send from SaveKey
+	CMP	#12
+	BNE	CheckIfInReceiveDataArea
+	; Let's send data!
+	JSR	SendDataPressed
+	RTS
+
+CheckIfInReceiveDataArea
+	; Are we in the "Receive 8 bytes" area? If so, we need to receive from SaveKey
+	; (Note: We should never fail this compare as this is the highest allowable index)
+	CMP	#13
+	BNE	DoneWithButtons
+	; Let's receive Data
+	JSR	ReceiveDataPressed
+	RTS
+
+DoneWithButtons
+	RTS
+
+AfterJoystickProcessHighlighting
+	;=======================
+	; 1 - savekey detection
+	; 2a 2b - savekey address
+	; 3a 3b 3c 3d 3e - savekey data 1
+	; 4a 4b 4c 4d 4e - savekey data 2
+	; 5 - send data
+	; 6 - read data
+	; 7 - bytes received
+	;=======================
+	; First things first-- make every editable text GREY
+	LDX	#13
+LoopToCleanAllText
+	LDA	ColorPtrTableLSB,X
+	STA	IndirPtr
+	LDA	ColorPtrTableMSB,X
+	STA	IndirPtr+1
+	LDY	#0
+	LDA	(IndirPtr),Y ; load the current color
+	AND	#%00011111
+	ORA	#GREY
+	STA	(IndirPtr),Y
+	DEX
+	BPL	LoopToCleanAllText
+
+	; Next, we want the "Received byte" to be Green to make it stand out
+	LDA	Color7
+	AND	#%00011111
+	ORA	#GREEN
+	STA	Color7
+
+	; Next, let's highlight the previous words selected in certain rows (defaults to first column)
+	LDX	LocationIndex
+	LDA	ColorPtrTableLSB,X
+	STA	IndirPtr
+	LDA	ColorPtrTableMSB,X
+	STA	IndirPtr+1
+	LDY	#0
+	LDA	(IndirPtr),Y ; load the current color
+	AND	#%00011111
+	ORA	#YELLOW
+	STA	(IndirPtr),Y
+
+	LDX	SendBlockIndex
+	LDA	ColorPtrTableLSB,X
+	STA	IndirPtr
+	LDA	ColorPtrTableMSB,X
+	STA	IndirPtr+1
+	LDY	#0
+	LDA	(IndirPtr),Y ; load the current color
+	AND	#%00011111
+	ORA	#YELLOW
+	STA	(IndirPtr),Y
+
+	; Finally, let's highlight the currently selected word
+	LDX	HighlightIndex
+	LDA	ColorPtrTableLSB,X
+	STA	IndirPtr
+	LDA	ColorPtrTableMSB,X
+	STA	IndirPtr+1
+	LDY	#0
+	LDA	(IndirPtr),Y ; load the current color
+	AND	#%00011111
+	ORA	#WHITE
+	STA	(IndirPtr),Y
+	RTS
+
+ColorPtrTableLSB
+	dc.b	#<Color2a
+	dc.b	#<Color2b
+	dc.b	#<Color3a
+	dc.b	#<Color3b
+	dc.b	#<Color3c
+	dc.b	#<Color3d
+	dc.b	#<Color3e
+	dc.b	#<Color4a
+	dc.b	#<Color4b
+	dc.b	#<Color4c
+	dc.b	#<Color4d
+	dc.b	#<Color4e
+	dc.b	#<Color5
+	dc.b	#<Color6
+
+ColorPtrTableMSB
+	dc.b	#>Color2a
+	dc.b	#>Color2b
+	dc.b	#>Color3a
+	dc.b	#>Color3b
+	dc.b	#>Color3c
+	dc.b	#>Color3d
+	dc.b	#>Color3e
+	dc.b	#>Color4a
+	dc.b	#>Color4b
+	dc.b	#>Color4c
+	dc.b	#>Color4d
+	dc.b	#>Color4e
+	dc.b	#>Color5
+	dc.b	#>Color6
+
+;=================
+ReceiveDataPressed
+;=================
+	; The BEST way to prove that the SaveKey actually works is to write garbage to the buffer before a read
+	LDX	#7
+	LDA	#0
+ClearOutSaveInfo
+	STA	Save_Info_RAM,X
+	DEX
+	BPL	ClearOutSaveInfo
+	; Okay-- now we can read
+	JSR	ReadSaveKey	; This copies data from the SaveKey to Save_Info_RAM
+				; Now, we need to copy this to CHMAP_Bytes_Read so we can see it on-screen
+	LDX	#7
+CopySaveKeyRAMtoCHMAP
+	LDA	Save_Info_RAM,X
+	STA	RAM_CHMAP_Bytes_Read,X
+	DEX
+	BPL	CopySaveKeyRAMtoCHMAP
+	RTS
+
+;==============
+SendDataPressed
+;==============
+	LDX	SendBlockIndex	; 2-11
+	LDA	LengthOfBytesToSend,X
+	STA	SaveKeyBytesToRead
+	LDA	SendBytesMapLSB,X
+	STA	IndirPtr
+	LDA	SendBytesMapMSB,X
+	STA	IndirPtr+1
+	LDY	SaveKeyBytesToRead
+	DEY	; the bytes are 1-8, need to make 0-7
+PopulateSave_Info_RAM
+	LDA	(IndirPtr),Y
+	STA	Save_Info_RAM,Y
+	DEY
+	BPL	PopulateSave_Info_RAM
+	JSR	WriteSaveKey
+	RTS
+
+LengthOfBytesToSend
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	7 ; Chicken
+	dc.b	6 ; Weasel
+	dc.b	5 ; Stork
+	dc.b	3 ; Pig
+	dc.b	2 ; Ox
+	dc.b	7 ; 0000000
+	dc.b	7 ; <blank>
+	dc.b	4 ; Test
+	dc.b	3 ; 333
+	dc.b	2 ; 22
+
+SendBytesMapMSB
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	#>CHMAP_Line17_String1 ; Chicken
+	dc.b	#>CHMAP_Line17_String2 ; Weasel
+	dc.b	#>CHMAP_Line17_String3 ; Stork
+	dc.b	#>CHMAP_Line17_String4 ; Pig
+	dc.b	#>CHMAP_Line17_String5 ; Ox
+	dc.b	#>CHMAP_Line18_String1 ; 0000000
+	dc.b	#>CHMAP_Line18_String2 ; <blank>
+	dc.b	#>CHMAP_Line18_String3 ; Test
+	dc.b	#>CHMAP_Line18_String4 ; 333
+	dc.b	#>CHMAP_Line18_String5 ; 22
+
+SendBytesMapLSB
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	0 ; N/A - this is for the $3040 / #3048 field
+	dc.b	#<CHMAP_Line17_String1 ; Chicken
+	dc.b	#<CHMAP_Line17_String2 ; Weasel
+	dc.b	#<CHMAP_Line17_String3 ; Stork
+	dc.b	#<CHMAP_Line17_String4 ; Pig
+	dc.b	#<CHMAP_Line17_String5 ; Ox
+	dc.b	#<CHMAP_Line18_String1 ; 0000000
+	dc.b	#<CHMAP_Line18_String2 ; <blank>
+	dc.b	#<CHMAP_Line18_String3 ; Test
+	dc.b	#<CHMAP_Line18_String4 ; 333
+	dc.b	#<CHMAP_Line18_String5 ; 22
 
 ;############################################################
 ; CHMAP Pointers to the graphic data are here - $1800 in RAM
-	ORG	$E000
+	ORG	$D000
 ;############################################################
 
 CHMAP_Space
    STR_LEN " ", CHMAP_Space
 
-;=================
+CHMAP_Hyphen
+   STR_LEN "-", CHMAP_Hyphen
 
-CHMAP_SaveKey
-   STR_LEN "SaveKey", CHMAP_SaveKey
+CHMAP_Slash
+   STR_LEN "/", CHMAP_Slash
 
-CHMAP_Not
-   STR_LEN "Not", CHMAP_Not
+;===============================================================================
+; Any "dynamic" CHMAP goes at the top of the list, so they can be copied to RAM
+;===============================================================================
 
-CHMAP_Detected
-   STR_LEN "Detected!!", CHMAP_Detected
+CHMAP_Line8_Dynamic_Passed
+   STR_LEN "PASSED", CHMAP_Line8_Dynamic_Passed
+CHMAP_Line8_Dynamic_Failed
+   STR_LEN "FAILED", CHMAP_Line8_Dynamic_Failed
 
-;=================
+;====================================
+;The rest of the CHMAPs are hardcoded
+;====================================
 
-CHMAP_Test_Send_To_SaveKey
-   STR_LEN "Test_Send_To_SaveKey", CHMAP_Test_Send_To_SaveKey
+CHMAP_Line1_and_6_Half
+   STR_LEN "====================", CHMAP_Line1_and_6_Half
 
-CHMAP_Test_Receive_From_SaveKey
-   STR_LEN "Test_Receive_From_SaveKey", CHMAP_Test_Receive_From_SaveKey
+CHMAP_Line2_Part1
+   STR_LEN "Assembly SaveKey Tester -", CHMAP_Line2_Part1
 
-;
+CHMAP_Line2_Part2
+   STR_LEN "Version 1.0", CHMAP_Line2_Part2
+
+CHMAP_Line3_Part1
+   STR_LEN "by John K. Harvey (Atari Age", CHMAP_Line3_Part1
+CHMAP_Line3_Part2
+   STR_LEN "@Propane13)", CHMAP_Line3_Part2
+
+; Skip line 4
+
+CHMAP_Line5_Part1
+   STR_LEN "Code: github.com/johnkharvey/", CHMAP_Line5_Part1
+CHMAP_Line5_Part2
+   STR_LEN "savekey7800", CHMAP_Line5_Part2
+
+; Line 6 uses CHMAP_Line1_and_6_Half
+
+; Skip Line 7
+
+CHMAP_Line8_Hardcode
+   STR_LEN "SaveKey detection:", CHMAP_Line8_Hardcode
+
+; Skip line 9
+
+CHMAP_Line10_Part1
+   STR_LEN "Move the joystick to select an", CHMAP_Line10_Part1
+CHMAP_Line10_Part2
+   STR_LEN "option", CHMAP_Line10_Part2
+
+CHMAP_Line11
+   STR_LEN "and then press FIRE:", CHMAP_Line11
+
+; Skip line 12
+
+CHMAP_Line13
+   STR_LEN "ADDRESS:", CHMAP_Line13
+
+CHMAP_Line14_String1
+   STR_LEN "$3040", CHMAP_Line14_String1
+
+CHMAP_Line14_String2
+   STR_LEN "<->", CHMAP_Line14_String2
+
+CHMAP_Line14_String3
+   STR_LEN "$3048", CHMAP_Line14_String3
+
+; Skip line 15
+
+CHMAP_Line16
+   STR_LEN "SEND DATA:", CHMAP_Line16
+
+CHMAP_Line17_String1
+   STR_LEN "Chicken", CHMAP_Line17_String1
+CHMAP_Line17_String2
+   STR_LEN "Weasel", CHMAP_Line17_String2
+CHMAP_Line17_String3
+   STR_LEN "Stork", CHMAP_Line17_String3
+CHMAP_Line17_String4
+   STR_LEN "Pig", CHMAP_Line17_String4
+CHMAP_Line17_String5
+   STR_LEN "Ox", CHMAP_Line17_String5
+
+CHMAP_Line18_String1
+   STR_LEN "0000000", CHMAP_Line18_String1
+CHMAP_Line18_String2
+   STR_LEN "<blank>", CHMAP_Line18_String2
+CHMAP_Line18_String3
+   STR_LEN "Test", CHMAP_Line18_String3
+CHMAP_Line18_String4
+   STR_LEN "333", CHMAP_Line18_String4
+CHMAP_Line18_String5
+   STR_LEN "22", CHMAP_Line18_String5
+
+; Skip line 19
+
+CHMAP_Line20
+   STR_LEN "ACTION:", CHMAP_Line20
+
+CHMAP_Line21
+   STR_LEN "Send Data", CHMAP_Line21
+
+CHMAP_Line22
+   STR_LEN "Read 8 bytes", CHMAP_Line22
+
+; Skip line 23
+
+CHMAP_Line24
+   STR_LEN "BYTES READ:", CHMAP_Line24
+CHMAP_Bytes_Read
+   STR_LEN "<TBD>   ", CHMAP_Bytes_Read
 
 ;###################################
 ; The DL starts here - $1900 in RAM
-	ORG	$E100
+	ORG	$E000
 ;###################################
+Code_DL_Start
 
 DL_Empty
 	dc.b	$00,$00
@@ -790,33 +1256,370 @@ DL_Space
 	dc.b	0 ; HPos (0-159)
 	dc.b	$00,$00
 
-DL_SaveKey
-	dc.b	<CHMAP_SaveKey
+;================
+DL_Line1_and_6
+	dc.b	<CHMAP_Line1_and_6_Half
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
-	dc.b	PALETTE0+$20-STR_LEN_CHMAP_SaveKey
-	dc.b	66 ; HPos (0-159)
+	dc.b	>CHMAP_Line1_and_6_Half
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line1_and_6_Half
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line1_and_6_Half
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line1_and_6_Half
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line1_and_6_Half
+	dc.b	80 ; HPos (0-159)
+
 	dc.b	$00,$00
 
-DL_Not
-	dc.b	<CHMAP_Not
+DL_Line2
+	dc.b	<CHMAP_Line2_Part1
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-	dc.b	>CHMAP_RAM_Start
-	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Not
-	dc.b	74 ; HPos (0-159)
+	dc.b	>CHMAP_Line2_Part1
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line2_Part1
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line2_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line2_Part2
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line2_Part2
+	dc.b	104 ; HPos (0-159)
+
 	dc.b	$00,$00
 
-DL_Detected
-	dc.b	<CHMAP_Detected
+DL_Line3
+	dc.b	<CHMAP_Line3_Part1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line3_Part1
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line3_Part1
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line3_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line3_Part2
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line3_Part2
+	dc.b	116 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line5
+	dc.b	<CHMAP_Line5_Part1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line5_Part1
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line5_Part1
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line5_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line5_Part2
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line5_Part2
+	dc.b	116 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line8
+	dc.b	<CHMAP_Line8_Hardcode
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line8_Hardcode
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line8_Hardcode
+	dc.b	0 ; HPos (0-159)
+
+CodeSaveKeyPassFailDL
+SaveKeyPassFailDL	equ	CodeSaveKeyPassFailDL-Code_DL_Start+DL_RAM_Start
+	dc.b	<CHMAP_Line8_Dynamic_Passed
 	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
 	dc.b	>CHMAP_RAM_Start
-	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Detected
-	dc.b	60 ; HPos (0-159)
+CodeColor1
+Color1	equ	CodeColor1-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE1+$20-STR_LEN_CHMAP_Line8_Dynamic_Passed ; PALETTE 1 = green
+	dc.b	76 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line10
+	dc.b	<CHMAP_Line10_Part1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line10_Part1
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line10_Part1
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line10_Part2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line10_Part2
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line10_Part2
+	dc.b	124 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line11
+	dc.b	<CHMAP_Line11
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line11
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line11
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line13
+	dc.b	<CHMAP_Line13
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line13
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line13
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line14
+	dc.b	<CHMAP_Hyphen
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Hyphen
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Hyphen
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line14_String1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line14_String1
+CodeColor2a
+Color2a	equ	CodeColor2a-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line14_String1
+	dc.b	12 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line14_String2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line14_String2
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line14_String2
+	dc.b	36 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line14_String3
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line14_String3
+CodeColor2b
+Color2b	equ	CodeColor2b-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line14_String3
+	dc.b	52 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line16
+	dc.b	<CHMAP_Line16
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line16
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line16
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line17
+	dc.b	<CHMAP_Hyphen
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Hyphen
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Hyphen
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line17_String1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line17_String1
+CodeColor3a
+Color3a	equ	CodeColor3a-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String1
+	dc.b	12 ; HPos (0-159)
+
+	dc.b	<CHMAP_Slash
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Slash
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Slash
+	dc.b	44 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line17_String2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line17_String2
+CodeColor3b
+Color3b	equ	CodeColor3b-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String2
+	dc.b	52 ; HPos (0-159)
+
+	dc.b	<CHMAP_Slash
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Slash
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Slash
+	dc.b	80 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line17_String3
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line17_String3
+CodeColor3c
+Color3c	equ	CodeColor3c-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String3
+	dc.b	88 ; HPos (0-159)
+
+	dc.b	<CHMAP_Slash
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Slash
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Slash
+	dc.b	112 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line17_String4
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line17_String4
+CodeColor3d
+Color3d	equ	CodeColor3d-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String4
+	dc.b	120 ; HPos (0-159)
+
+	dc.b	<CHMAP_Slash
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Slash
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Slash
+	dc.b	136 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line17_String5
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line17_String5
+CodeColor3e
+Color3e	equ	CodeColor3e-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line17_String5
+	dc.b	144 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line18
+	dc.b	<CHMAP_Hyphen
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Hyphen
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Hyphen
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line18_String1
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line18_String1
+CodeColor4a
+Color4a	equ	CodeColor4a-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String1
+	dc.b	12 ; HPos (0-159)
+
+	dc.b	<CHMAP_Slash
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Slash
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Slash
+	dc.b	44 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line18_String2
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line18_String2
+CodeColor4b
+Color4b	equ	CodeColor4b-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String2
+	dc.b	52 ; HPos (0-159)
+
+	dc.b	<CHMAP_Slash
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Slash
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Slash
+	dc.b	84 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line18_String3
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line18_String3
+CodeColor4c
+Color4c	equ	CodeColor4c-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String3
+	dc.b	92 ; HPos (0-159)
+
+	dc.b	<CHMAP_Slash
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Slash
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Slash
+	dc.b	112 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line18_String4
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line18_String4
+CodeColor4d
+Color4d	equ	CodeColor4d-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String4
+	dc.b	120 ; HPos (0-159)
+
+	dc.b	<CHMAP_Slash
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Slash
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Slash
+	dc.b	136 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line18_String5
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line18_String5
+CodeColor4e
+Color4e	equ	CodeColor4e-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line18_String5
+	dc.b	144 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line20
+	dc.b	<CHMAP_Line20
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line20
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line20
+	dc.b	0 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line21
+	dc.b	<CHMAP_Hyphen
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Hyphen
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Hyphen
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line21
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line21
+CodeColor5
+Color5	equ	CodeColor5-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line21
+	dc.b	12 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line22
+	dc.b	<CHMAP_Hyphen
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Hyphen
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Hyphen
+	dc.b	4 ; HPos (0-159)
+
+	dc.b	<CHMAP_Line22
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line22
+CodeColor6
+Color6	equ	CodeColor6-Code_DL_Start+DL_RAM_Start
+	dc.b	PALETTE3+$20-STR_LEN_CHMAP_Line22
+	dc.b	12 ; HPos (0-159)
+
+	dc.b	$00,$00
+
+DL_Line24
+	dc.b	<CHMAP_Line24
+	dc.b	$60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+	dc.b	>CHMAP_Line24
+	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line24
+	dc.b	0 ; HPos (0-159)
+
+        ;dc.b    <Save_Info_RAM
+	dc.b	#<RAM_CHMAP_Bytes_Read
+        dc.b    $60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
+        ;dc.b    >Save_Info_RAM
+	dc.b	#>RAM_CHMAP_Bytes_Read
+CodeColor7
+Color7	equ	CodeColor7-Code_DL_Start+DL_RAM_Start
+        dc.b    PALETTE3+$20-STR_LEN_CHMAP_Bytes_Read
+        dc.b    48 ; HPos (0-159)
+
 	dc.b	$00,$00
 
 ;#####################################
-; The DLL starts here - $1A00 in RAM
-	ORG	$E200
+; The DLL starts here - $2400 in RAM
+	ORG	$F000
 ;#####################################
 
 DLL_PAL:
@@ -825,7 +1628,7 @@ DLL_PAL:
 	dc.b	$07, >DL_Empty, <DL_Empty
 	dc.b	$07, >DL_Empty, <DL_Empty
 
-	; $E20C
+	; $F20C
 DLL_NTSC:
 	dc.b	$00, >DL_Empty, <DL_Empty	; 25 blank lines that can't be seen
 	dc.b	$07, >DL_Empty, <DL_Empty	; on most NTSC TVs anyway
@@ -839,30 +1642,30 @@ DLL_NTSC:
 Code_DLL_On_Screen:
 DLL_On_Screen	EQU	Code_DLL_On_Screen - DLL_PAL + DLLRam
 
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [8] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [16] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [24] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [32] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [40] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [48] blank
-	dc.b	$07, >DL_RAM_Start, <DL_SaveKey	; [56] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [64] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Not	; [72] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [80] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Detected	; [88] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [96] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [104] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [112] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [120] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [128] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [136] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [144] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [152] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [160] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [168] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [176] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [184] blank
-	dc.b	$07, >DL_RAM_Start, <DL_Space	; [192] blank
+	dc.b	$07, >(DL_Line1_and_6-Code_DL_Start+DL_RAM_Start), <DL_Line1_and_6 ; [8] blank
+	dc.b	$07, >(DL_Line2-Code_DL_Start+DL_RAM_Start), <DL_Line2 ; [16] blank
+	dc.b	$07, >(DL_Line3-Code_DL_Start+DL_RAM_Start), <DL_Line3   ; [24] blank
+	dc.b	$07, >(DL_Space-Code_DL_Start+DL_RAM_Start), <DL_Space   ; [32] blank
+	dc.b	$07, >(DL_Line5-Code_DL_Start+DL_RAM_Start), <DL_Line5	; [40] blank
+	dc.b	$07, >(DL_Line1_and_6-Code_DL_Start+DL_RAM_Start), <DL_Line1_and_6 ; [48] blank
+	dc.b	$07, >(DL_Space-Code_DL_Start+DL_RAM_Start), <DL_Space   ; [56] blank
+	dc.b	$07, >(DL_Line8-Code_DL_Start+DL_RAM_Start), <DL_Line8   ; [64] blank
+	dc.b	$07, >(DL_Space-Code_DL_Start+DL_RAM_Start), <DL_Space   ; [72] blank
+	dc.b	$07, >(DL_Line10-Code_DL_Start+DL_RAM_Start), <DL_Line10  ; [80] blank
+	dc.b	$07, >(DL_Line11-Code_DL_Start+DL_RAM_Start), <DL_Line11  ; [88] blank
+	dc.b	$07, >(DL_Space-Code_DL_Start+DL_RAM_Start), <DL_Space   ; [96] blank
+	dc.b	$07, >(DL_Line13-Code_DL_Start+DL_RAM_Start), <DL_Line13  ; [104] blank
+	dc.b	$07, >(DL_Line14-Code_DL_Start+DL_RAM_Start), <DL_Line14  ; [112] blank
+	dc.b	$07, >(DL_Space-Code_DL_Start+DL_RAM_Start), <DL_Space	; [120] blank
+	dc.b	$07, >(DL_Line16-Code_DL_Start+DL_RAM_Start), <DL_Line16  ; [128] blank
+	dc.b	$07, >(DL_Line17-Code_DL_Start+DL_RAM_Start), <DL_Line17  ; [136] blank
+	dc.b	$07, >(DL_Line18-Code_DL_Start+DL_RAM_Start), <DL_Line18  ; [144] blank
+	dc.b	$07, >(DL_Space-Code_DL_Start+DL_RAM_Start), <DL_Space	; [152] blank
+	dc.b	$07, >(DL_Line20-Code_DL_Start+DL_RAM_Start), <DL_Line20  ; [160] blank
+	dc.b	$07, >(DL_Line21-Code_DL_Start+DL_RAM_Start), <DL_Line21  ; [168] blank
+	dc.b	$07, >(DL_Line22-Code_DL_Start+DL_RAM_Start), <DL_Line22  ; [176] blank
+	dc.b	$07, >(DL_Space-Code_DL_Start+DL_RAM_Start), <DL_Space	; [184] blank
+	dc.b	$07, >(DL_Line24-Code_DL_Start+DL_RAM_Start), <DL_Line24  ; [192] blank
 
 	dc.b	$07, >DL_Empty, <DL_Empty	; The DMA keeps doing another 26 lines
 	dc.b	$07, >DL_Empty, <DL_Empty	; which can't be seen on most NTSC
@@ -887,6 +1690,7 @@ DLL_On_Screen	EQU	Code_DLL_On_Screen - DLL_PAL + DLLRam
 ; displaying in every frame.
 INTERRUPT:
 
+	RTI
 	; Canary code, courtesy of Atariage user RevEng
 	LDA	#$1A ; YELLOW
 	STA	BACKGRND

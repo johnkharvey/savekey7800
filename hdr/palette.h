@@ -1,51 +1,8 @@
-;Palette.asm
+; palette.h
+; This header file contains a macro for converting NTSC colors to PAL colors
+; as well as a converstion table for easy reference
 
 	processor 6502
-	;Palette equates
-
-; HERO Palette
-P0C1Init	equ	#$E1	; dark ninja suit
-P0C2Init	equ	$44	; red ballcap
-P0C3Init	equ	$5C	; Skin
-
-; Underground palette
-P1C1Init	equ	$24	; Rust
-P1C2Init	equ	$04	; Dark Grey
-P1C3Init	equ	$16	; Yellow (lightbulb)
-
-; Street/bush palette (not used)
-;P2C1Init	equ	$04	; grey
-P2C1Init	equ	$84	; grey
-;P2C2Init	equ	$0E	; white ; also used for Text
-P2C2Init	equ	$3E	; white ; also used for Text
-;P2C3Init	equ	$C4	; green
-P2C3Init	equ	$54	; green
-
-; Special
-P3C1Init	equ	$82	; Blue - for spikes
-P3C2Init	equ	$0E	; White ; also used for text
-P3C3Init	equ	$B8	; Aqua - for spikes and emerald
-
-
-; UnderGround/ Pitfall Harry's legs
-P4C1Init	equ	$1C	; Yellow
-P4C2Init	equ	$22	; Brown
-P4C3Init	equ	$D2	; Dark Green
-
-; Underground 2
-P5C1Init	equ	$54	; purple
-P5C2Init	equ	$68	; darker purple
-P5C3Init	equ	$44	; lava red
-
-; Pitfall Harry's top
-P6C1Init	equ	$C8	; yellow green
-P6C2Init	equ	$4A	; pink
-P6C3Init	equ	$22	; brown
-
-
-P7C1Init	equ	$00	; black - needed for Curtains
-P7C2Init	equ	$08	; light grey
-P7C3Init	equ	$0E	; white
 
 	;NTSC to PAL color Macro
 	mac	NTSC2PALColor
