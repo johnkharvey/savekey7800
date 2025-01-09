@@ -45,8 +45,8 @@ DL_RAM_Start			ds	512	;	$1900-$1AFF
 ; Another RAM area (this is a good place for SaveKey info)
 	ORG	$1F00
 ;################################################################
-Save_Info_RAM	ds	8
-
+Save_Info_RAM			ds	8	; This is where bytes will temporarily be pulled or pushed from the SaveKey
+RAM_CHMAP_Bytes_Read		ds	8	; This is where the bytes will be displayed to the screen
 
 ;################################################################
 ; End of Memory 1 - for origin reverse-indexed trapping
@@ -563,6 +563,14 @@ RamCleanupLoop3
 	LDA	#7
 	STA	SaveKeyBytesToRead	; our first default is to send 7 bytes (for the word 'chicken')
 
+	; Let's copy the "bytes read" ROM map into RAM
+	LDX	#7
+Copy_Bytes_Read_Into_RAM
+	LDA	CHMAP_Bytes_Read,X
+	STA	RAM_CHMAP_Bytes_Read,X
+	DEX
+	BPL	Copy_Bytes_Read_Into_RAM
+
 
 	;=========================
 	; Fall into the Main Loop
@@ -1024,18 +1032,30 @@ ColorPtrTableMSB
 	dc.b	#>Color5
 	dc.b	#>Color6
 
+;=================
 ReceiveDataPressed
-	;JSR	ReadSaveKey	; This copies data from the SaveKey to Save_Info_RAM
+;=================
+	; The BEST way to prove that the SaveKey actually works is to write garbage to the buffer before a read
+	LDX	#7
+	LDA	#0
+ClearOutSaveInfo
+	STA	Save_Info_RAM,X
+	DEX
+	BPL	ClearOutSaveInfo
+	; Okay-- now we can read
+	JSR	ReadSaveKey	; This copies data from the SaveKey to Save_Info_RAM
 				; Now, we need to copy this to CHMAP_Bytes_Read so we can see it on-screen
 	LDX	#7
 CopySaveKeyRAMtoCHMAP
 	LDA	Save_Info_RAM,X
-	STA	CHMAP_Bytes_Read,X
+	STA	RAM_CHMAP_Bytes_Read,X
 	DEX
 	BPL	CopySaveKeyRAMtoCHMAP
 	RTS
 
+;==============
 SendDataPressed
+;==============
 	LDX	SendBlockIndex	; 2-11
 	LDA	LengthOfBytesToSend,X
 	STA	SaveKeyBytesToRead
@@ -1050,7 +1070,7 @@ PopulateSave_Info_RAM
 	STA	Save_Info_RAM,Y
 	DEY
 	BPL	PopulateSave_Info_RAM
-	;JSR	WriteSaveKey
+	JSR	WriteSaveKey
 	RTS
 
 LengthOfBytesToSend
@@ -1585,9 +1605,11 @@ DL_Line24
 	dc.b	PALETTE0+$20-STR_LEN_CHMAP_Line24
 	dc.b	0 ; HPos (0-159)
 
-        dc.b    <Save_Info_RAM
+        ;dc.b    <Save_Info_RAM
+	dc.b	#<RAM_CHMAP_Bytes_Read
         dc.b    $60 ; D7 = Write Mode bit: 0=160x2 or 320x1, 1=160x4 or 320x2. D6=1. D5 = Indirect mode bit: 0=direct, 1=indirect mode.
-        dc.b    >Save_Info_RAM
+        ;dc.b    >Save_Info_RAM
+	dc.b	#>RAM_CHMAP_Bytes_Read
 CodeColor7
 Color7	equ	CodeColor7-Code_DL_Start+DL_RAM_Start
         dc.b    PALETTE3+$20-STR_LEN_CHMAP_Bytes_Read
